@@ -1,0 +1,98 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+const validChannels = new Set([
+  'did-navigate',
+  'did-navigate-in-page',
+  'will-navigate',
+  'title-updated',
+  'nav-state-changed',
+  'page-loading',
+  'tab-switched',
+  'tabs-initialized',
+  'tab-created',
+  'tab-removed',
+  'focus-address-bar',
+  'favicon-updated',
+  'page-context-updated',
+  'toggle-ai-sidebar',
+  'tab-sidebar-toggled',
+  'ai-sidebar-shown',
+  'ai-sidebar-hidden',
+  'ai-sidebar-width-changed',
+  'ai-float-shown',
+  'ai-float-hidden',
+  'ai-float-closed',
+  'open-document-url'
+]);
+
+const subscriptions = new Map();
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  navigate: (url) => ipcRenderer.invoke('navigate', url),
+  goBack: () => ipcRenderer.invoke('go-back'),
+  goForward: () => ipcRenderer.invoke('go-forward'),
+  reload: () => ipcRenderer.invoke('reload'),
+  createTab: (url) => ipcRenderer.invoke('create-tab', url),
+  closeTab: (tabId) => ipcRenderer.invoke('close-tab', tabId),
+  switchTab: (tabId) => ipcRenderer.invoke('switch-tab', tabId),
+  getTabs: () => ipcRenderer.invoke('get-tabs'),
+  getActiveTab: () => ipcRenderer.invoke('get-active-tab'),
+  windowMinimize: () => ipcRenderer.invoke('window-minimize'),
+    windowMaximize: () => ipcRenderer.invoke('window-maximize'),
+    windowClose: () => ipcRenderer.invoke('window-close'),
+    toggleAiFloat: () => ipcRenderer.invoke('toggle-ai-float'),
+    showAiFloat: () => ipcRenderer.invoke('show-ai-float'),
+    hideAiFloat: () => ipcRenderer.invoke('hide-ai-float'),
+    resizeAiFloat: (w, h) => ipcRenderer.invoke('resize-ai-float', w, h),
+    toggleTabSidebar: () => ipcRenderer.invoke('toggle-tab-sidebar'),
+    showBrowserView: () => ipcRenderer.invoke('show-browser-view'),
+    hideBrowserView: () => ipcRenderer.invoke('hide-browser-view'),
+
+    getPageContent: () => ipcRenderer.invoke('get-page-content'),
+    getPageHtml: () => ipcRenderer.invoke('get-page-html'),
+    getPageSelection: () => ipcRenderer.invoke('get-page-selection'),
+    capturePage: () => ipcRenderer.invoke('capture-page'),
+    executeOnPage: (script) => ipcRenderer.invoke('execute-on-page', script),
+    getPageMetadata: () => ipcRenderer.invoke('get-page-metadata'),
+    navigateTo: (url) => ipcRenderer.invoke('navigate-to'),
+    webSearch: (query) => ipcRenderer.invoke('web-search', query),
+    getPageDomSnapshot: () => ipcRenderer.invoke('get-page-dom-snapshot'),
+    injectContentScript: () => ipcRenderer.invoke('inject-content-script'),
+    encryptSecret: (text) => ipcRenderer.invoke('encrypt-secret', text),
+    decryptSecret: (text) => ipcRenderer.invoke('decrypt-secret', text),
+    openExternal: (url) => ipcRenderer.invoke('open-external', url),
+    exportData: () => ipcRenderer.invoke('export-data'),
+    importData: (json) => ipcRenderer.invoke('import-data', json),
+    openFileDialog: (filters) => ipcRenderer.invoke('open-file-dialog', filters),
+    readFileAsBase64: (filePath) => ipcRenderer.invoke('read-file-base64', filePath),
+    downloadUrl: (url) => ipcRenderer.invoke('download-url', url),
+
+  on: (channel, callback) => {
+    if (!validChannels.has(channel)) return;
+    const handler = (event, ...args) => {
+      try {
+        callback(...args);
+      } catch (e) {
+        console.error('[Dawn] Event handler error:', e);
+      }
+    };
+    ipcRenderer.on(channel, handler);
+    if (!subscriptions.has(channel)) {
+      subscriptions.set(channel, new Set());
+    }
+    subscriptions.get(channel).add({ original: callback, wrapped: handler });
+  },
+
+  off: (channel, callback) => {
+    if (!validChannels.has(channel)) return;
+    const subs = subscriptions.get(channel);
+    if (!subs) return;
+    for (const sub of subs) {
+      if (sub.original === callback) {
+        ipcRenderer.removeListener(channel, sub.wrapped);
+        subs.delete(sub);
+        break;
+      }
+    }
+  }
+});
