@@ -9,12 +9,13 @@ import { useContextManager } from './composables/useContextManager'
 import { useProactiveAI } from './composables/useProactiveAI'
 import { renderMarkdown } from './composables/useMarkdown'
 import { t } from './composables/useI18n'
+import { formatError } from './composables/useErrorFormat'
 import ChatInput from './ChatInput.vue'
 
 const props = defineProps({ embedded: Boolean })
 
 const { config, providers, getProvider, getEffectiveModel, getEffectiveBaseUrl, getApiFormat } = useAiConfig()
-const { conversations, activeConvId, isStreaming, streamError, pendingToolCalls, toolConfirmRequired, agentState, getActiveConversation, createConversation, deleteConversation, sendMessage, stopStreaming, confirmToolCall, editMessage, regenerateResponse, branchConversation, exportAsMarkdown, exportAsHtml } = useAiChat()
+const { conversations, activeConvId, isStreaming, streamError, pendingToolCalls, toolConfirmRequired, agentState, getActiveConversation, createConversation, deleteConversation, sendMessage, stopStreaming, skipCurrentTool, interruptAgent, confirmToolCall, editMessage, regenerateResponse, branchConversation, exportAsMarkdown, exportAsHtml } = useAiChat()
 const { getRegisteredTools, getEnabledTools, setPermission, resolvePermission } = useToolSystem()
 const { getFilteredCommands, matchCommand, getAllCommands, getCommandsByCategory } = useSlashCommands()
 const { activePlan, getPlanSummary } = useAgentLoop()
@@ -252,6 +253,15 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
     </div>
 
     <div v-else class="ai-chat" :class="{ 'ai-chat-panels': showSummaryPanel || showTranslation }">
+      <!-- Agent status bar -->
+      <div v-if="agentState !== 'idle'" class="ai-agent-bar" :class="agentState">
+        <span class="ai-agent-dot"></span>
+        <span v-if="agentState === 'thinking'">Agent 思考中...</span>
+        <span v-else-if="agentState === 'executing'">Agent 执行工具中...</span>
+        <span v-if="pendingToolCalls.length > 0" class="ai-agent-tool-name">{{ pendingToolCalls.map(tc => tc.name).join(', ') }}</span>
+        <button v-if="agentState === 'executing'" class="ai-agent-btn" @click="skipCurrentTool" title="Skip current tool">Skip</button>
+        <button class="ai-agent-btn stop" @click="interruptAgent" title="Stop agent">Stop</button>
+      </div>
       <div class="ai-messages" ref="messagesEl" :class="{ 'ai-messages-narrow': showSummaryPanel || showTranslation }">
         <div v-if="!activeConv || activeConv.messages.length === 0" class="ai-welcome">
           <div class="ai-welcome-icon">
@@ -311,7 +321,7 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
           </div>
           <div v-else-if="!activeConv.messages[activeConv.messages.length - 1]?.content && !activeConv.messages[activeConv.messages.length - 1]?.toolCalls?.length" class="ai-msg assistant"><div class="ai-thinking"><span class="ai-dot"></span><span class="ai-dot"></span><span class="ai-dot"></span></div></div>
         </div>
-        <div v-if="streamError" class="ai-error">{{ streamError }}</div>
+        <div v-if="streamError" class="ai-error">{{ formatError(streamError) }}</div>
       </div>
 
       <ChatInput :isStreaming="isStreaming" @send="handleChatSend" @stop="stopStreaming" @clear="newChat()" />
@@ -396,7 +406,27 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
 .ai-template-del { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: none; border-radius: 4px; color: #8a8a88; cursor: pointer; }
 .ai-template-del:hover { background: rgba(255,95,86,0.1); color: #c00; }
 .ai-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.ai-messages { flex: 1; overflow-y: auto; padding: 12px; }
+.ai-agent-bar {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  background: rgba(59,130,246,0.06); border-bottom: 1px solid rgba(59,130,246,0.12);
+  font-size: 11px; color: #2563eb; flex-shrink: 0; user-select: none;
+}
+.ai-agent-bar.executing { background: rgba(59,130,246,0.1); }
+.ai-agent-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #2563eb;
+  animation: ai-bounce 1.4s ease-in-out infinite;
+}
+.ai-agent-tool-name {
+  font-family: 'SF Mono', monospace; font-size: 10px; color: #1c1c1c;
+  margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px;
+}
+.ai-agent-btn {
+  padding: 1px 7px; background: rgba(28,28,28,0.06); border: 1px solid #eceae4;
+  border-radius: 4px; font-size: 10px; font-family: inherit; color: #5f5f5d; cursor: pointer; flex-shrink: 0;
+}
+.ai-agent-btn:hover { background: rgba(28,28,28,0.12); }
+.ai-agent-btn.stop { background: rgba(255,95,86,0.1); border-color: rgba(255,95,86,0.2); color: #c00; }
+.ai-messages { flex: 1; overflow-y: auto; padding: 12px 16px 12px 16px; }
 .ai-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; }
 .ai-welcome-icon { opacity: 0.2; }
 .ai-welcome-text { font-size: 15px; font-weight: 600; color: #1c1c1c; }

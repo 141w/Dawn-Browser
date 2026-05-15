@@ -82,22 +82,6 @@ function getTrailSummary() {
   }
 }
 
-function getAutonavToolDefinition() {
-  return {
-    name: 'autonomous_navigate',
-    description: 'Browse to a URL and extract information. Use this for multi-step research tasks. Returns page content from the destination.',
-    parameters: {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: 'URL to navigate to' },
-        extract: { type: 'string', description: 'What specific information to extract from the page' },
-        newTab: { type: 'boolean', description: 'Open in a new tab (preserves current page)' }
-      },
-      required: ['url']
-    }
-  }
-}
-
 export function useAutonomousBrowser() {
   loadWhitelist()
   return {
@@ -110,7 +94,6 @@ export function useAutonomousBrowser() {
     setMode,
     addToTrail,
     getTrailSummary,
-    getAutonavToolDefinition,
     loadWhitelist,
     saveWhitelist
   }

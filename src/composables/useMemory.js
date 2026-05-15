@@ -1,5 +1,5 @@
 const DB_NAME = 'dawn-ai-memory'
-const DB_VERSION = 1
+const DB_VERSION = 3
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -8,16 +8,34 @@ function openDB() {
     request.onsuccess = () => resolve(request.result)
     request.onupgradeneeded = (event) => {
       const db = event.target.result
-      if (!db.objectStoreNames.contains('conversations')) {
-        db.createObjectStore('conversations', { keyPath: 'id' })
+      const oldVer = event.oldVersion || 0
+
+      if (oldVer < 1) {
+        if (!db.objectStoreNames.contains('conversations')) {
+          db.createObjectStore('conversations', { keyPath: 'id' })
+        }
+        if (!db.objectStoreNames.contains('config')) {
+          db.createObjectStore('config', { keyPath: 'key' })
+        }
+        if (!db.objectStoreNames.contains('bookmarks')) {
+          const bookmarkStore = db.createObjectStore('bookmarks', { keyPath: 'id', autoIncrement: true })
+          bookmarkStore.createIndex('url', 'url', { unique: false })
+          bookmarkStore.createIndex('time', 'time', { unique: false })
+        }
       }
-      if (!db.objectStoreNames.contains('config')) {
-        db.createObjectStore('config', { keyPath: 'key' })
+
+      if (oldVer < 2) {
+        if (!db.objectStoreNames.contains('history')) {
+          const historyStore = db.createObjectStore('history', { keyPath: 'id', autoIncrement: true })
+          historyStore.createIndex('url', 'url', { unique: false })
+          historyStore.createIndex('visitTime', 'visitTime', { unique: false })
+        }
       }
-      if (!db.objectStoreNames.contains('bookmarks')) {
-        const bookmarkStore = db.createObjectStore('bookmarks', { keyPath: 'id', autoIncrement: true })
-        bookmarkStore.createIndex('url', 'url', { unique: false })
-        bookmarkStore.createIndex('time', 'time', { unique: false })
+
+      if (oldVer < 3) {
+        // Ensure bookmarks have parentId support
+        // IndexedDB upgrades can't modify existing indexes without delete+recreate,
+        // but we can check existing data via cursor later. For now, ensure the store exists.
       }
     }
   })
@@ -121,6 +139,89 @@ export async function loadBookmarksFromDB() {
   } catch {
     return []
   }
+}
+
+export async function saveHistoryEntry(entry) {
+  try {
+    await storeOp('history', 'readwrite')((store) => {
+      // Check if URL already exists in recent 1 hour to avoid duplicates
+      const index = store.index('url')
+      const range = IDBKeyRange.only(entry.url)
+      const req = index.openCursor(range, 'prev')
+      req.onsuccess = (e) => {
+        const cursor = e.target.result
+        if (cursor && cursor.value.visitTime > Date.now() - 3600000) {
+          // Update existing entry's visit time
+          cursor.value.visitTime = entry.visitTime
+          cursor.value.title = entry.title || cursor.value.title
+          cursor.update(cursor.value)
+        } else {
+          const { id, ...clean } = entry
+          store.put(clean)
+        }
+      }
+    })
+  } catch {}
+}
+
+export async function loadHistoryFromDB(limit = 200) {
+  try {
+    return await storeOp('history', 'readonly')((store) => {
+      return new Promise((resolve) => {
+        const index = store.index('visitTime')
+        const request = index.openCursor(null, 'prev')
+        const results = []
+        request.onsuccess = (e) => {
+          const cursor = e.target.result
+          if (cursor && results.length < limit) {
+            results.push(cursor.value)
+            cursor.continue()
+          } else {
+            resolve(results)
+          }
+        }
+        request.onerror = () => resolve([])
+      })
+    })
+  } catch { return [] }
+}
+
+export async function searchHistoryFromDB(query, limit = 100) {
+  try {
+    const q = query.toLowerCase()
+    return await storeOp('history', 'readonly')((store) => {
+      return new Promise((resolve) => {
+        const index = store.index('visitTime')
+        const request = index.openCursor(null, 'prev')
+        const results = []
+        request.onsuccess = (e) => {
+          const cursor = e.target.result
+          if (cursor && results.length < limit) {
+            const v = cursor.value
+            if ((v.title || '').toLowerCase().includes(q) || (v.url || '').toLowerCase().includes(q)) {
+              results.push(v)
+            }
+            cursor.continue()
+          } else {
+            resolve(results)
+          }
+        }
+        request.onerror = () => resolve([])
+      })
+    })
+  } catch { return [] }
+}
+
+export async function clearHistoryFromDB() {
+  try {
+    await storeOp('history', 'readwrite')((store) => store.clear())
+  } catch {}
+}
+
+export async function removeHistoryEntry(id) {
+  try {
+    await storeOp('history', 'readwrite')((store) => store.delete(id))
+  } catch {}
 }
 
 export async function getStorageStats() {

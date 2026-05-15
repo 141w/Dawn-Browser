@@ -109,6 +109,7 @@ const messages = {
 
     // BrowserSettings
     'bs.general': '常规',
+    'bs.ai': 'AI',
     'bs.about': '关于',
     'bs.newTabMode': '新标签页',
     'bs.newTabMode.dawn': 'Dawn 首页',
@@ -256,6 +257,7 @@ const messages = {
 
     // BrowserSettings
     'bs.general': 'General',
+    'bs.ai': 'AI',
     'bs.about': 'About',
     'bs.newTabMode': 'New Tab Page',
     'bs.newTabMode.dawn': 'Dawn Home',

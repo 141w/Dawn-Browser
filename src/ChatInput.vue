@@ -4,6 +4,7 @@ import { t } from './composables/useI18n'
 import { useContextRef } from './composables/useContextRef'
 import { useSlashCommands } from './composables/useSlashCommands'
 import { useAiConfig } from './composables/useAiConfig'
+import { useAiChat } from './composables/useAiChat'
 import { useBrowserTabs } from './composables/useBrowserTabs'
 
 const props = defineProps({ isStreaming: Boolean })
@@ -12,6 +13,7 @@ const emit = defineEmits(['send', 'stop', 'clear', 'help'])
 const { contextRefs, addContextRef, removeContextRef, clearContextRefs, getContextPrompt, searchRefTypes } = useContextRef()
 const { getFilteredCommands, matchCommand } = useSlashCommands()
 const { config, providers } = useAiConfig()
+const { agentMode, toggleAgentMode } = useAiChat()
 const { getOpenPageRefs } = useBrowserTabs()
 
 const inputMsg = ref('')
@@ -109,6 +111,15 @@ async function insertRef(refItem) {
         url: refItem.url,
         tabId: refItem.id,
         content: '' // Will be fetched when sending
+      })
+    } else if (refItem.type === 'file') {
+      // Reference an open document tab
+      addContextRef('tab', {
+        label: '📄 ' + (refItem.title || refItem.label || 'Document').slice(0, 40),
+        preview: refItem.url,
+        url: refItem.url,
+        tabId: refItem.id,
+        content: ''
       })
     } else if (refItem.type === 'page') {
       const meta = await window.electronAPI?.getPageMetadata()
@@ -254,11 +265,19 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
       <!-- Action bar -->
       <div class="ci-bar">
         <div class="ci-bar-left">
+          <!-- Agent/Chat toggle -->
+          <button class="ci-agent-toggle" :class="{ active: agentMode }" @click="toggleAgentMode" :title="agentMode ? 'Agent 模式：AI 可操控浏览器' : 'Chat 模式：纯对话'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span>{{ agentMode ? 'Agent' : 'Chat' }}</span>
+          </button>
+
           <!-- @ button -->
           <div class="ci-drop-wrap">
-            <button class="ci-tag-btn" @click.stop="showRefPicker=!showRefPicker; showSlashPanel=false; showModelMenu=false; showMoreMenu=false">@</button>
+            <button class="ci-tag-btn" @click.stop="showRefPicker=!showRefPicker; showSlashPanel=false; showModelMenu=false; showMoreMenu=false; if(showRefPicker&&filteredRefTypes.length===0){filteredRefTypes=[...getOpenPageRefs(),...searchRefTypes('').map(r=>({...r,id:r.type}))];refIndex=0}">@</button>
             <div v-if="showRefPicker" class="ci-dropdown" @click.stop>
               <div v-for="(ref,idx) in filteredRefTypes" :key="ref.id || ref.type" class="ci-drop-item" :class="{active:idx===refIndex}" @click="insertRef(ref)">
+                <svg v-if="ref.icon==='file'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <svg v-else-if="ref.icon==='page'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 <svg v-if="ref.icon==='page'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 <svg v-else-if="ref.icon==='camera'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
                 <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -375,6 +394,23 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
   color: #8a8a88; cursor: pointer; transition: all .15s;
 }
 .ci-tag-btn:hover { background: rgba(28,28,28,0.04); color: #5f5f5d; border-color: rgba(28,28,28,0.15); }
+
+/* Agent toggle */
+.ci-agent-toggle {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; background: transparent;
+  border: 1px solid #eceae4; border-radius: 14px;
+  font-size: 11px; font-family: inherit; font-weight: 600;
+  color: #8a8a88; cursor: pointer; transition: all .15s;
+  white-space: nowrap; user-select: none;
+}
+.ci-agent-toggle svg { flex-shrink: 0; color: #8a8a88; transition: color .15s; }
+.ci-agent-toggle:hover { background: rgba(28,28,28,0.04); color: #5f5f5d; border-color: rgba(28,28,28,0.15); }
+.ci-agent-toggle.active {
+  background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); color: #2563eb;
+}
+.ci-agent-toggle.active svg { color: #2563eb; }
+.ci-agent-toggle.active:hover { background: rgba(59,130,246,0.12); }
 
 .ci-icon-btn {
   display: flex; align-items: center; justify-content: center;

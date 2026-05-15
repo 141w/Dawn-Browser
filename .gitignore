@@ -26,6 +26,11 @@ dist-ssr
 # Directories
 openclaw-main/
 .claude/
+release/
+
+# Backups
+*.backup
+*.backup*
 
 # All markdown except README.md
 *.md

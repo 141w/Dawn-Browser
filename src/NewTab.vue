@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { t } from './composables/useI18n'
+import { resolveUrl } from './composables/useSearchEngine'
 
 const query = ref('')
 const searchInput = ref(null)
@@ -32,17 +33,8 @@ function navigateTo(url) {
 }
 
 function submit() {
-  const v = query.value.trim()
-  if (!v) return
-  let url
-  if (/^https?:\/\//i.test(v)) {
-    url = v
-  } else if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(v)) {
-    url = 'https://' + v
-  } else {
-    url = 'https://www.google.com/search?q=' + encodeURIComponent(v)
-  }
-  navigateTo(url)
+  const url = resolveUrl(query.value)
+  if (url) navigateTo(url)
 }
 
 function go(url) {

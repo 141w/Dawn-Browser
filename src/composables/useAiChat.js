@@ -14,6 +14,7 @@ const streamError = ref(null)
 const pendingToolCalls = ref([])
 const toolConfirmRequired = ref(null)
 const agentState = ref('idle')
+const agentMode = ref(false)
 let abortController = null
 let toolCallHistory = []
 let _loadPromise = null
@@ -27,27 +28,48 @@ function enqueueSave(fn) {
 async function loadConversations() {
   if (_loadPromise) return _loadPromise
   _loadPromise = (async () => {
+    let loaded = false
+    // 1. Try IndexedDB first
     try {
       const dbConvs = await loadConversationsFromDB()
       if (dbConvs.length > 0) {
-        // Merge: keep any convs already created (e.g. by createConversation) on top
         const existingIds = new Set(conversations.value.map(c => c.id))
         const newFromDb = dbConvs.filter(c => !existingIds.has(c.id))
         conversations.value = [...conversations.value, ...newFromDb]
         if (!activeConvId.value && conversations.value.length > 0) {
           activeConvId.value = conversations.value[0].id
         }
+        loaded = true
+      }
+    } catch (e) { console.error('[Dawn] IndexedDB load failed:', e.message) }
+
+    // 2. Always check localStorage backup (may be newer than IndexedDB)
+    try {
+      const backup = localStorage.getItem('dawn-ai-conversations-backup')
+      const ts = localStorage.getItem('dawn-ai-conversations-timestamp')
+      if (backup && ts !== null) {
+        const parsed = JSON.parse(backup)
+        if (parsed.length > 0) {
+          const existingIds = new Set(conversations.value.map(c => c.id))
+          const newFromBackup = parsed.filter(c => !existingIds.has(c.id))
+          if (newFromBackup.length > 0) {
+            conversations.value = [...conversations.value, ...newFromBackup]
+            loaded = true
+          }
+        }
       }
     } catch {}
-    // Migrate from old localStorage if DB is empty
-    if (conversations.value.length === 0) {
-      const saved = localStorage.getItem('dawn-ai-conversations')
-      if (saved) {
+
+    // 3. Migrate old localStorage key (from very old versions)
+    if (!loaded && conversations.value.length === 0) {
+      const legacy = localStorage.getItem('dawn-ai-conversations')
+      if (legacy) {
         try {
-          const parsed = JSON.parse(saved)
+          const parsed = JSON.parse(legacy)
           if (parsed.length > 0) {
             conversations.value = parsed
             if (!activeConvId.value) activeConvId.value = parsed[0].id
+            loaded = true
           }
           localStorage.removeItem('dawn-ai-conversations')
         } catch {}
@@ -58,15 +80,24 @@ async function loadConversations() {
 }
 
 function sanitizeForStorage(conv) {
-  // Strip Vue reactivity with toRaw, then deep clone via JSON to guarantee plain objects
   try {
     const raw = toRaw(conv)
-    const plain = JSON.parse(JSON.stringify(raw))
+    const seen = new WeakSet()
+    const plain = JSON.parse(JSON.stringify(raw, (key, val) => {
+      if (typeof val === 'object' && val !== null) {
+        if (seen.has(val)) return '[Circular]'
+        seen.add(val)
+      }
+      if (val === undefined) return null
+      return val
+    }))
     return {
       id: plain.id, title: plain.title, createdAt: plain.createdAt,
       messages: (plain.messages || []).map(m => ({
-        role: m.role, content: typeof m.content === 'string' ? m.content : String(m.content || '').slice(0, 2000),
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : (typeof m.content === 'object' ? String(JSON.stringify(m.content)).slice(0, 5000) : String(m.content || '').slice(0, 5000)),
         images: undefined,
+        reasoning_content: m.reasoning_content || undefined,
         slashCmd: m.slashCmd || undefined,
         slashPrompt: m.slashPrompt || undefined,
         toolCalls: m.toolCalls ? m.toolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments) })) : undefined,
@@ -74,18 +105,21 @@ function sanitizeForStorage(conv) {
       }))
     }
   } catch {
-    return { id: conv.id, title: conv.title, createdAt: conv.createdAt, messages: [] }
+    return { id: conv.id, title: conv.title || 'Chat', createdAt: conv.createdAt || Date.now(), messages: [] }
   }
 }
 
 function saveConversations() {
   return enqueueSave(async () => {
+    const clean = (conversations.value || []).map(sanitizeForStorage)
+    // Dual-write: IndexedDB (primary) + localStorage (backup, always)
+    try { await saveConversationsToDB(clean) }
+    catch (e) { console.error('[Dawn] IndexedDB save failed:', e.message) }
     try {
-      const clean = conversations.value.map(sanitizeForStorage)
-      await saveConversationsToDB(clean)
-    } catch {
-      try { localStorage.setItem('dawn-ai-conversations', JSON.stringify(conversations.value)) } catch {}
-    }
+      const raw = toRaw(conversations.value)
+      localStorage.setItem('dawn-ai-conversations-backup', JSON.stringify(raw))
+      localStorage.setItem('dawn-ai-conversations-timestamp', String(Date.now()))
+    } catch {}
   })
 }
 
@@ -148,8 +182,9 @@ async function sendMessage(content, pageContext = null, images = null, slashCmd 
     userContent += ctx
   }
 
-  // Only enter agent mode for explicit multi-step / browsing requests
-  const isComplex = /搜索|对比|分析并|找到.*所有|每个|多个|全部|research|compare.*and|find.*all|analyze.*each|open.*and.*read|go to|visit.*and|browse.*and/i.test(userContent)
+  // Agent mode: manual toggle OR detected complex browsing request
+  const isComplex = agentMode.value ||
+    /搜索|对比|分析并|找到.*所有|每个|多个|全部|打开|访问|去.*网站|浏览|research|compare.*and|find.*all|analyze.*each|open.*and.*read|go to|visit.*and|browse.*and/i.test(userContent)
 
   if (isComplex) {
     createPlan(userContent)
@@ -291,6 +326,16 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
       break
     }
 
+    // Drop tool calls with empty names (malformed output from some providers/models)
+    const validCalls = toolCalls.filter(tc => tc.name)
+    if (validCalls.length === 0 && toolCalls.length > 0) {
+      assistantMsg.content = assistantMsg.content || ''
+      const toolResult = { role: 'tool', toolCallId: 'err', name: '(malformed)', content: 'Model returned tool calls with empty names. The selected model may not support function calling. Try switching to DeepSeek or GPT-4o.' }
+      conv.messages.push(toolResult)
+      break
+    }
+    toolCalls = validCalls
+
     assistantMsg.toolCalls = toolCalls
     pendingToolCalls.value = toolCalls
 
@@ -314,10 +359,12 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
         }
       }
 
-      if (tc.name === 'autonomous_navigate' || tc.name === 'visit_page' || tc.name === 'navigate_to') {
+      if (tc.name === 'navigate_to' || tc.name === 'web_search') {
         const { addToTrail } = useAutonomousBrowser()
         addToTrail({ action: tc.name, url: args?.url || '', args })
       }
+
+      if (_skipCurrentTool) { _skipCurrentTool = false; continue }
 
       const execResult = await executeTool(tc.name, args)
 
@@ -342,10 +389,11 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
         execResult.error = reResult.error
       }
 
-      const toolContent = execResult.error
-        || (typeof execResult.result === 'object' && (execResult.result.type === 'image' || execResult.result.requestSummary)
-            ? execResult.result.content || JSON.stringify(execResult.result)
-            : String(execResult.result || ''))
+      let raw = execResult.error
+        || (typeof execResult.result === 'object'
+            ? JSON.stringify(execResult.result)
+            : String(execResult.result ?? ''))
+      const toolContent = raw.length > 6000 ? raw.slice(0, 6000) + '…[truncated]' : raw
 
       conv.messages.push({
         role: 'tool',
@@ -396,6 +444,7 @@ function buildApiMessages(conv, systemPrompt, format) {
           msgs.push({
             role: 'assistant',
             content: m.content || null,
+            reasoning_content: m.reasoning_content || undefined,
             tool_calls: m.toolCalls.map(tc => ({
               id: tc.id,
               type: 'function',
@@ -422,7 +471,9 @@ function buildApiMessages(conv, systemPrompt, format) {
         if (format === 'anthropic') {
           msgs.push({ role: 'assistant', content: [{ type: 'text', text: m.content }] })
         } else {
-          msgs.push({ role: 'assistant', content: m.content })
+          const am = { role: 'assistant', content: m.content }
+          if (m.reasoning_content) am.reasoning_content = m.reasoning_content
+          msgs.push(am)
         }
       }
     } else if (m.role === 'tool') {
@@ -465,6 +516,7 @@ async function streamOpenAI(baseUrl, apiKey, model, messages, cfg, assistantMsg,
   const decoder = new TextDecoder()
   let buffer = ''
   const toolCallsMap = {}
+  let reasoningContent = ''
 
   while (true) {
     const { done, value } = await reader.read()
@@ -481,13 +533,20 @@ async function streamOpenAI(baseUrl, apiKey, model, messages, cfg, assistantMsg,
         const choice = json.choices?.[0]
         if (!choice) continue
 
+        // DeepSeek reasoner: reasoning_content must be passed back to the API
+        if (choice.delta?.reasoning_content) {
+          reasoningContent += choice.delta.reasoning_content
+          assistantMsg.reasoning_content = reasoningContent
+        }
         if (choice.delta?.content) assistantMsg.content += choice.delta.content
         if (choice.delta?.tool_calls) {
           for (const tc of choice.delta.tool_calls) {
-            const id = tc.id || `tc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-            if (!toolCallsMap[id]) toolCallsMap[id] = { id, name: tc.function?.name || '', arguments: '' }
-            if (tc.function?.name) toolCallsMap[id].name = tc.function.name
-            if (tc.function?.arguments) toolCallsMap[id].arguments += tc.function.arguments
+            // Use index as stable key — only the first delta has `id`, but every delta has `index`
+            const key = tc.index !== undefined ? 'tc_' + tc.index : (tc.id || 'tc_' + Date.now().toString(36))
+            if (!toolCallsMap[key]) toolCallsMap[key] = { id: tc.id || '', name: tc.function?.name || '', arguments: '' }
+            if (tc.id) toolCallsMap[key].id = tc.id
+            if (tc.function?.name) toolCallsMap[key].name = tc.function.name
+            if (tc.function?.arguments) toolCallsMap[key].arguments += tc.function.arguments
           }
         }
         if (choice.finish_reason === 'tool_calls') break
@@ -657,6 +716,15 @@ function stopStreaming() {
   isStreaming.value = false
 }
 
+let _skipCurrentTool = false
+function skipCurrentTool() { _skipCurrentTool = true }
+function interruptAgent() {
+  stopStreaming()
+  const conv = conversations.value.find(c => c.id === activeConvId.value)
+  if (conv) conv.messages.push({ role: 'assistant', content: '[Interrupted by user]', toolCalls: [] })
+  saveConversations()
+}
+
 function confirmToolCall(approved) {
   if (toolConfirmRequired.value?.resolve) {
     toolConfirmRequired.value.resolve(approved)
@@ -792,11 +860,15 @@ export function useAiChat() {
     pendingToolCalls,
     toolConfirmRequired,
     agentState,
+    agentMode,
+    toggleAgentMode: () => { agentMode.value = !agentMode.value },
     getActiveConversation,
     createConversation,
     deleteConversation,
     sendMessage,
     stopStreaming,
+    skipCurrentTool,
+    interruptAgent,
     saveConversations,
     confirmToolCall,
     editMessage,

@@ -8,13 +8,21 @@ import { t } from "./composables/useI18n";
 import { useTips } from "./composables/useTips";
 import { useTabGroups } from "./composables/useTabGroups";
 import { useBrowserTabs } from "./composables/useBrowserTabs";
-
+import { useAiChat } from "./composables/useAiChat";
+import { useAiConfig } from "./composables/useAiConfig";
+import { useBookmarks } from "./composables/useBookmarks";
+import { useHistory } from "./composables/useHistory";
+import { resolveUrl } from "./composables/useSearchEngine";
 const { userTips, addTip, deleteTip } = useTips();
-const { tabSidebarOpen, tabGroups, toggleSidebar, autoGroupTabs } = useTabGroups();
+const { createConversation } = useAiChat();
+const { addBookmark, isBookmarked } = useBookmarks();
+const { addEntry: addHistoryEntry } = useHistory();
+const { tabSidebarOpen, tabGroups, toggleSidebar, aiGroupTabs } = useTabGroups();
 const { setTabs: syncBrowserTabs, setActiveTab: syncActiveTab } = useBrowserTabs();
 
 const tabs = ref([]);
 const activeTabId = ref(null);
+const tabFavicons = ref({}); // tabId → favicon data URL
 
 function syncTabsToStore() {
   syncBrowserTabs(tabs.value)
@@ -29,8 +37,20 @@ const addressInput = ref(null);
 const showAi = ref(false);
 const aiSidebarVisible = ref(false);
 const aiSidebarWidth = ref(420);
-const showTipEditor = ref(false);
-const showViewer = ref(false);
+const platform = ref('win32')
+onMounted(async () => { platform.value = await window.electronAPI?.getPlatform() || 'win32' })
+
+// Panel overlay via BrowserWindow (floats above BrowserView)
+function togglePanel(mode) {
+  window.electronAPI?.showPanel(mode)
+}
+function handlePanelAction(action) {
+  if (action?.type === 'navigate') {
+    currentUrl.value = action.url
+    navigate()
+  }
+}
+
 const viewingDoc = ref(null);
 const docDataMap = ref({});    // tabId → { fileName, ext, data, filePath }
 const docDataByUrl = ref({});  // url → { fileName, ext, data, filePath } (set before createTab)
@@ -43,6 +63,11 @@ const isOnHomePage = computed(() => {
   return !currentUrl.value || currentUrl.value === '' || currentUrl.value === 'dawn://newtab';
 });
 
+const isInternalPage = computed(() => {
+  const url = currentUrl.value
+  return !url || url === 'dawn://newtab' || url === 'dawn://settings'
+})
+
 const activeDocData = computed(() => {
   if (!activeTabId.value) return null
   return docDataMap.value[activeTabId.value] || null
@@ -54,7 +79,7 @@ const isViewingDoc = computed(() => {
 
 /* ── AI toggle ── */
 function toggleAi() {
-  if (isOnHomePage.value) return; // disabled on home page
+  if (isInternalPage.value) return; // disabled on home/settings pages
   const next = !aiSidebarVisible.value;
   aiSidebarVisible.value = next;
   showAi.value = next;
@@ -75,12 +100,8 @@ async function handleToggleSidebar() {
 
 /* ── Navigation ── */
 async function navigate() {
-  let url = currentUrl.value.trim();
+  let url = resolveUrl(currentUrl.value)
   if (!url) return;
-  if (!/^https?:\/\//i.test(url) && !/^dawn:\/\//i.test(url) && !/^file:\/\/\//i.test(url)) {
-    if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(url)) url = "https://" + url;
-    else url = "https://www.google.com/search?q=" + encodeURIComponent(url);
-  }
   // Check if this is a document URL → view inline
   if (isDocUrl(url)) {
     await openDocUrl(url)
@@ -168,7 +189,59 @@ async function selectTab(id) {
 }
 
 function openSettings() { window.electronAPI?.createTab("dawn://settings"); }
-function handleAutoGroup() { autoGroupTabs(tabs.value); }
+function handleAutoGroup() { aiGroupTabs(tabs.value); }
+function navigateToUrl(url) { currentUrl.value = url; navigate(); }
+function openFromHistory(url) { currentUrl.value = url; navigate(); showHistory.value = false; }
+
+async function toggleBookmark() {
+  const url = currentUrl.value
+  if (!url || url === 'dawn://newtab' || url === 'dawn://settings') return
+  if (isBookmarked(url)) return // Already bookmarked
+  const doc = viewingDoc.value || activeDocData.value
+  await addBookmark({
+    title: doc ? (doc.fileName || url) : (activeTabTitle() || url),
+    url,
+    type: doc ? 'file' : 'web',
+    filePath: doc?.filePath || ''
+  })
+}
+function activeTabTitle() {
+  const tab = tabs.value.find(t => t.id === activeTabId.value)
+  return tab?.title || ''
+}
+
+/* ── Tab drag-and-drop ── */
+const dragSrcId = ref(null)
+const dropTargetId = ref(null)
+const dropPos = ref(null)
+function onDragStart(e, tabId) {
+  dragSrcId.value = tabId
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', tabId)
+}
+function onDragOver(e, tabId) {
+  if (dragSrcId.value === tabId) { dropTargetId.value = null; return }
+  dropTargetId.value = tabId
+  const rect = e.currentTarget.getBoundingClientRect()
+  dropPos.value = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+}
+function onDrop(e, tabId) {
+  const srcId = dragSrcId.value
+  if (!srcId || srcId === tabId) return
+  const srcIdx = tabs.value.findIndex(t => t.id === srcId)
+  let dstIdx = tabs.value.findIndex(t => t.id === tabId)
+  if (srcIdx < 0 || dstIdx < 0) return
+  if (dropPos.value === 'after') dstIdx++
+  if (srcIdx < dstIdx) dstIdx--
+  const [item] = tabs.value.splice(srcIdx, 1)
+  tabs.value.splice(dstIdx, 0, item)
+  dropTargetId.value = null
+  dragSrcId.value = null
+}
+function onDragEnd() {
+  dragSrcId.value = null
+  dropTargetId.value = null
+}
 
 /* ── Tab data ── */
 function updateTabData(tabId, url, title) {
@@ -201,9 +274,12 @@ function handleNavStateChanged(back, forward) { canGoBack.value = back; canGoFor
 function handlePageLoading(loading) { isLoading.value = loading; }
 
 function handleTabCreated(tabId, url, title) {
-  if (!tabs.value.find((t) => t.id === tabId)) {
-    const dd = getDocDataByUrl(url)
-    if (dd) title = dd.fileName || title
+  const dd = getDocDataByUrl(url)
+  if (dd) title = dd.fileName || title
+  const existing = tabs.value.find((t) => t.id === tabId)
+  if (existing) {
+    existing.title = title
+  } else {
     tabs.value.push({ id: tabId, url, title });
   }
 }
@@ -217,6 +293,8 @@ function handleTabRemoved(tabId) {
 
 function handleTabSwitched(tabId, url, title) {
   activeTabId.value = tabId;
+  // Fresh conversation when opening a new tab
+  if (url === 'dawn://newtab') createConversation()
   const dd = getDocDataByUrl(url) || docDataMap.value[tabId]
   if (dd) {
     // Show actual file path in address bar (like Edge)
@@ -232,6 +310,33 @@ function handleTabsInitialized(initialTabs, initialActiveTabId) {
   const at = initialTabs.find((t) => t.id === initialActiveTabId);
   currentUrl.value = at ? at.url : "";
 }
+
+/* ── Find-in-page ── */
+const showFindBar = ref(false)
+const findText = ref('')
+const findMatches = ref(0)
+const findActiveMatch = ref(0)
+const findInputEl = ref(null)
+
+async function openFindBar() {
+  showFindBar.value = true
+  await nextTick()
+  findInputEl.value?.focus()
+  findInputEl.value?.select()
+}
+function closeFindBar() {
+  showFindBar.value = false; findText.value = ''; findMatches.value = 0
+  window.electronAPI?.stopFindInPage()
+}
+async function doFind(next = false) {
+  if (!findText.value.trim()) { closeFindBar(); return }
+  const result = await window.electronAPI?.findInPage(findText.value)
+  if (result) { findMatches.value = result.matches || 0; findActiveMatch.value = result.activeMatchOrdinal || 0 }
+}
+function handleFoundInPage(result) {
+  if (result) { findMatches.value = result.matches || 0; findActiveMatch.value = result.activeMatchOrdinal || 0 }
+}
+function handleFindBarClosed() { showFindBar.value = false }
 
 function handleFocusAddressBar() {
   if (addressInput.value) { addressInput.value.focus(); addressInput.value.select(); }
@@ -260,12 +365,19 @@ function saveNewTip() {
 
 /* ── Resize handle ── */
 let resizeDragging = false;
+let _lastResizeIPC = 0
 function onResizeStart(e) {
   e.preventDefault(); resizeDragging = true;
   const startX = e.clientX, startW = aiSidebarWidth.value;
   function onMove(ev) {
     if (!resizeDragging) return;
     aiSidebarWidth.value = Math.max(320, Math.min(600, startW + (startX - ev.clientX)));
+    // Throttle IPC calls to every 50ms during drag
+    const now = Date.now()
+    if (now - _lastResizeIPC > 50) {
+      _lastResizeIPC = now
+      window.electronAPI?.resizeAiFloat(aiSidebarWidth.value)
+    }
   }
   function onUp() {
     resizeDragging = false;
@@ -288,6 +400,10 @@ const eventHandlers = {
   "ai-sidebar-hidden": handleAiSidebarHidden, "ai-sidebar-width-changed": handleAiSidebarWidthChanged,
   "ai-float-shown": handleAiFloatShown, "ai-float-hidden": handleAiFloatHidden,
   "ai-float-closed": handleAiFloatClosed, "tab-sidebar-toggled": handleTabSidebarToggled,
+  "focus-find-bar": openFindBar, "found-in-page": handleFoundInPage, "find-in-page-closed": handleFindBarClosed,
+  "history-entry": addHistoryEntry, "toggle-history": () => { togglePanel('history') },
+  "favicon-updated": (fav) => { if (fav) tabFavicons.value[activeTabId.value] = fav },
+  "panel-action": handlePanelAction,
 };
 
 function setupListeners() {
@@ -319,17 +435,25 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(() => { removeListeners(); });
+const { config } = useAiConfig()
+
+onBeforeUnmount(() => { removeListeners(); if (config.value?.clearOnExit) window.electronAPI?.clearOnExit() })
 </script>
 
 <template>
   <div class="browser">
     <header class="browser-header">
       <div class="titlebar">
-        <div class="window-controls">
-          <span class="control close" @click="window.electronAPI?.windowClose()"></span>
-          <span class="control minimize" @click="window.electronAPI?.windowMinimize()"></span>
-          <span class="control maximize" @click="window.electronAPI?.windowMaximize()"></span>
+        <div class="window-controls" :class="{ win: platform === 'win32', mac: platform === 'darwin' }">
+          <span class="control minimize" @mousedown.stop @click.stop="window.electronAPI?.windowMinimize()">
+            <svg v-if="platform==='win32'" width="10" height="10" viewBox="0 0 10 2"><rect width="10" height="2" rx="1" fill="currentColor"/></svg>
+          </span>
+          <span class="control maximize" @mousedown.stop @click.stop="window.electronAPI?.windowMaximize()">
+            <svg v-if="platform==='win32'" width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          </span>
+          <span class="control close" @mousedown.stop @click.stop="window.electronAPI?.windowClose()">
+            <svg v-if="platform==='win32'" width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </span>
         </div>
         <div class="window-title">Dawn</div>
       </div>
@@ -356,13 +480,25 @@ onBeforeUnmount(() => { removeListeners(); });
           <input ref="addressInput" type="text" v-model="currentUrl" @keydown.enter="navigate" :placeholder="t('search.placeholder')" />
         </div>
 
+        <button class="tool-btn" @click="togglePanel('downloads')" title="Downloads (Ctrl+J)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button class="tool-btn" @click="togglePanel('history')" title="History (Ctrl+H)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
         <button class="tool-btn" @click="openDocFile" title="Open Document">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         </button>
-        <button class="tool-btn" @click="showTipEditor = !showTipEditor" :class="{ active: showTipEditor }" title="Tips & Scripts">
+        <button class="tool-btn" @click="toggleBookmark" title="Bookmark this page">
+          <svg width="17" height="17" viewBox="0 0 24 24" :fill="isBookmarked(currentUrl) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </button>
+        <button class="tool-btn" @click="togglePanel('bookmarks')" title="All Bookmarks">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+        </button>
+        <button class="tool-btn" @click="togglePanel('tips')" title="Tips & Scripts">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         </button>
-        <button class="tool-btn" @click="toggleAi" :class="{ active: showAi, disabled: isOnHomePage }" :disabled="isOnHomePage" title="AI Assistant (Ctrl+Shift+A)">
+        <button class="tool-btn" @click="toggleAi" :class="{ active: showAi, disabled: isInternalPage }" :disabled="isInternalPage" title="AI Assistant (Ctrl+Shift+A)">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10 10 10 0 01-10 10A10 10 0 012 12 10 10 0 0112 2z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
         </button>
         <button class="tool-btn" @click="openSettings" title="Settings">
@@ -371,7 +507,15 @@ onBeforeUnmount(() => { removeListeners(); });
       </div>
 
       <div class="tabbar">
-        <div v-for="tab in tabs" :key="tab.id" class="tab" :class="{ active: tab.id === activeTabId }" @click="selectTab(tab.id)">
+        <div v-for="tab in tabs" :key="tab.id" class="tab"
+          :class="{ active: tab.id === activeTabId, dragging: dragSrcId === tab.id, 'drop-before': dropTargetId === tab.id && dropPos === 'before', 'drop-after': dropTargetId === tab.id && dropPos === 'after' }"
+          :draggable="true"
+          @click="selectTab(tab.id)"
+          @dragstart="onDragStart($event, tab.id)"
+          @dragover.prevent="onDragOver($event, tab.id)"
+          @drop="onDrop($event, tab.id)"
+          @dragend="onDragEnd">
+          <img v-if="tabFavicons[tab.id]" :src="tabFavicons[tab.id]" class="tab-favicon" />
           <span class="tab-title">{{ tab.title || "New Tab" }}</span>
           <button v-if="tabs.length > 1" class="tab-close" @click.stop="closeTab(tab.id)">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -384,6 +528,16 @@ onBeforeUnmount(() => { removeListeners(); });
     </header>
 
     <div class="browser-body">
+      <!-- Find bar -->
+      <div v-if="showFindBar" class="find-bar">
+        <input ref="findInputEl" v-model="findText" @keydown.enter="doFind(true)" @keydown.escape="closeFindBar" @input="doFind()" placeholder="Find in page..." />
+        <span class="find-count" v-if="findMatches > 0">{{ findActiveMatch }}/{{ findMatches }}</span>
+        <span class="find-count" v-else-if="findText">0/0</span>
+        <button class="find-btn" @click="doFind(false)" title="Previous">▲</button>
+        <button class="find-btn" @click="doFind(true)" title="Next">▼</button>
+        <button class="find-btn find-close" @click="closeFindBar">✕</button>
+      </div>
+
       <!-- Tab sidebar (DOM-based, positioned in space NOT covered by BrowserView) -->
       <TabSidebar
         :tabs="tabs"
@@ -409,32 +563,6 @@ onBeforeUnmount(() => { removeListeners(); });
         <!-- HOME PAGE: Full AI interface when on new tab -->
         <div v-else-if="isOnHomePage" class="home-ai">
           <HomeAI />
-        </div>
-
-        <!-- Tips & Scripts Panel (overlay when browsing) -->
-        <div v-if="showTipEditor" class="tips-panel">
-          <div class="tips-panel-header">
-            <span class="tips-panel-title">Tips & Scripts</span>
-            <button class="tips-panel-close" @click="showTipEditor = false">&times;</button>
-          </div>
-          <div class="tips-panel-body">
-            <div class="tips-new">
-              <input class="tips-input" v-model="newTipForm.name" placeholder="/command-name" @keydown.enter="saveNewTip" />
-              <input class="tips-input" v-model="newTipForm.description" placeholder="Short description..." />
-              <textarea class="tips-textarea" v-model="newTipForm.prompt" placeholder="Prompt template...&#10;Use {page_content}, {selection}, {url} as variables" rows="3"></textarea>
-              <button class="tips-save-btn" @click="saveNewTip" :disabled="!newTipForm.name.trim()">Save Tip</button>
-            </div>
-            <div v-if="userTips.length > 0" class="tips-list">
-              <div v-for="tip in userTips" :key="tip.id" class="tips-item">
-                <div class="tips-item-info">
-                  <span class="tips-item-name">{{ tip.name }}</span>
-                  <span class="tips-item-desc">{{ tip.description }}</span>
-                </div>
-                <button class="tips-item-del" @click="deleteTip(tip.id)">&times;</button>
-              </div>
-            </div>
-            <div v-else class="tips-empty">No custom tips yet. Create one above.</div>
-          </div>
         </div>
 
         <!-- BROWSING: AI sidebar drawer (only when browsing and AI is toggled) -->
@@ -475,11 +603,22 @@ body { background: var(--color-bg); overflow: hidden; }
   -webkit-app-region: drag;
 }
 .window-controls { display: flex; gap: 8px; position: absolute; left: 12px; -webkit-app-region: no-drag; }
-.control { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; transition: opacity 0.15s; }
+.control {
+  width: 12px; height: 12px; border-radius: 50%; cursor: pointer; transition: opacity 0.15s;
+  pointer-events: auto; z-index: 10;
+}
 .control:hover { opacity: 0.8; }
 .control.close { background: #ff5f56; }
 .control.minimize { background: #ffbd2e; }
 .control.maximize { background: #27ca40; }
+/* Windows-style: top-right icon buttons */
+.window-controls.win { left: auto; right: 0; gap: 0; }
+.window-controls.win .control {
+  width: 46px; height: 36px; border-radius: 0; background: transparent;
+  display: flex; align-items: center; justify-content: center; color: #8a8a88;
+}
+.window-controls.win .control:hover { background: rgba(28,28,28,0.06); color: #1c1c1c; }
+.window-controls.win .control.close:hover { background: #c42b1c; color: #fff; }
 .window-title { font-size: 13px; font-weight: 400; color: var(--color-text-secondary); }
 
 .toolbar {
@@ -524,6 +663,10 @@ body { background: var(--color-bg); overflow: hidden; }
 }
 .tab:hover { background: rgba(28,28,28,0.06); }
 .tab.active { background: var(--color-bg); border-color: var(--color-border-light); color: var(--color-text); }
+.tab.dragging { opacity: 0.4; }
+.tab.drop-before { box-shadow: -2px 0 0 #2563eb; }
+.tab.drop-after { box-shadow: 2px 0 0 #2563eb; }
+.tab-favicon { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
 .tab-title { overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: left; }
 .tab-close {
   display: flex; align-items: center; justify-content: center;
@@ -540,8 +683,29 @@ body { background: var(--color-bg); overflow: hidden; }
 }
 .new-tab-btn:hover { background: rgba(28,28,28,0.06); color: var(--color-text); }
 
+/* ── Find bar ── */
+.find-bar {
+  position: absolute; top: 0; right: 0; z-index: 300;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; background: #fcfbf8; border: 1px solid #eceae4;
+  border-radius: 8px; box-shadow: rgba(0,0,0,0.1) 0 2px 12px;
+  margin: 6px;
+}
+.find-bar input {
+  width: 180px; padding: 3px 8px; background: transparent; border: none; outline: none;
+  font-size: 13px; font-family: inherit; color: #1c1c1c;
+}
+.find-count { font-size: 11px; color: #8a8a88; min-width: 30px; text-align: center; }
+.find-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; background: transparent; border: 1px solid #eceae4;
+  border-radius: 4px; font-size: 10px; color: #5f5f5d; cursor: pointer;
+}
+.find-btn:hover { background: rgba(28,28,28,0.06); }
+.find-close { border: none; font-size: 14px; }
+
 /* ── Body ── */
-.browser-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.browser-body { display: flex; flex: 1; min-height: 0; overflow: hidden; position: relative; }
 
 .main-content { flex: 1; min-width: 0; display: flex; position: relative; overflow: hidden; }
 
@@ -558,6 +722,7 @@ body { background: var(--color-bg); overflow: hidden; }
   z-index: 100; display: flex; flex-direction: column;
   box-shadow: rgba(0,0,0,0.1) -2px 0px 20px;
   animation: drawer-slide-in 0.2s ease-out;
+  transition: width 0.15s ease-out;
 }
 @keyframes drawer-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 

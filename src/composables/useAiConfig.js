@@ -101,7 +101,7 @@ function loadConfig() {
     systemPrompt: 'You are a helpful assistant.',
     newTabMode: 'dawn',
     newTabUrl: '',
-    searchEngine: 'google',
+    searchEngine: 'baidu',
     downloadPath: '',
     clearOnExit: false
   }

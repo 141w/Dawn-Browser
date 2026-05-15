@@ -1,15 +1,25 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useAiConfig } from './composables/useAiConfig'
 import { t } from './composables/useI18n'
 
 defineProps({ embedded: { type: Boolean, default: false } })
 
-const { config } = useAiConfig()
+const { config, providers, getProvider, getApiFormat, getEffectiveBaseUrl, getEffectiveModel } = useAiConfig()
 const activeTab = ref('general')
 
-function openAiPanel() {
-  if (window.electronAPI) window.electronAPI.showAiFloat()
+const currentProvider = computed(() => getProvider())
+const currentModels = computed(() => {
+  const p = currentProvider.value
+  const models = [...p.models]
+  if (config.value.customModel && !models.includes(config.value.customModel)) models.push(config.value.customModel)
+  return models
+})
+
+function onProviderChange() {
+  const p = getProvider()
+  if (p.models.length > 0) config.value.model = p.models[0]
+  config.value.customModel = ''
 }
 </script>
 
@@ -21,7 +31,9 @@ function openAiPanel() {
 
     <div class="bs-tabs">
       <button class="bs-tab" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">{{ t('bs.general') }}</button>
+      <button class="bs-tab" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">{{ t('bs.ai') }}</button>
       <button class="bs-tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">{{ t('bs.about') }}</button>
+      <button class="bs-tab" :class="{ active: activeTab === 'shortcuts' }" @click="activeTab = 'shortcuts'">Shortcuts</button>
     </div>
 
     <div class="bs-body">
@@ -67,12 +79,64 @@ function openAiPanel() {
             <span>{{ t('bs.clearOnExit') }}</span>
           </label>
         </div>
+      </div>
 
-        <hr class="bs-divider" />
+      <!-- AI Tab -->
+      <div v-if="activeTab === 'ai'" class="bs-section">
+        <div class="bs-field">
+          <label class="bs-label">Provider</label>
+          <select class="bs-select" v-model="config.provider" @change="onProviderChange">
+            <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </div>
+        <div class="bs-field">
+          <label class="bs-label">Model</label>
+          <select class="bs-select" v-model="config.model">
+            <option v-for="m in currentModels" :key="m" :value="m">{{ m }}</option>
+          </select>
+        </div>
+        <div class="bs-field">
+          <label class="bs-label">API Key</label>
+          <input class="bs-input" type="password" v-model="config.apiKey" :placeholder="currentProvider.apiKeyRequired ? 'Required' : 'Optional'" />
+        </div>
+        <div class="bs-field">
+          <label class="bs-label">Base URL</label>
+          <input class="bs-input" v-model="config.baseUrl" :placeholder="currentProvider.baseUrl" />
+        </div>
+        <div class="bs-field">
+          <label class="bs-label">Temperature: {{ config.temperature }}</label>
+          <input class="bs-input" type="range" min="0" max="2" step="0.1" v-model.number="config.temperature" style="padding:0;border:none;" />
+        </div>
+        <div class="bs-field">
+          <label class="bs-label">Max Tokens</label>
+          <input class="bs-input" type="number" v-model.number="config.maxTokens" min="256" max="128000" step="256" />
+        </div>
+        <div class="bs-field">
+          <label class="bs-label">System Prompt</label>
+          <textarea class="bs-input" v-model="config.systemPrompt" rows="3" style="resize:vertical;"></textarea>
+        </div>
+        <div class="bs-api-info">
+          <span>Format: {{ getApiFormat() }}</span>
+          <span>Endpoint: {{ getEffectiveBaseUrl() }}</span>
+          <span>Model: {{ getEffectiveModel() }}</span>
+        </div>
+      </div>
 
-        <h3 class="bs-section-title">{{ t('bs.aiSection') }}</h3>
-        <p class="bs-section-desc">{{ t('bs.aiSectionDesc') }}</p>
-        <button class="bs-open-ai-btn" @click="openAiPanel">{{ t('bs.openAi') }}</button>
+      <!-- Shortcuts Tab -->
+      <div v-if="activeTab === 'shortcuts'" class="bs-section">
+        <div class="bs-shortcuts">
+          <div class="bs-shortcut-row"><kbd>Ctrl+T</kbd><span>New Tab</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+W</kbd><span>Close Tab</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+Tab</kbd><span>Next Tab</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+Shift+T</kbd><span>Restore Closed Tab</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+L</kbd><span>Focus Address Bar</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+F</kbd><span>Find in Page</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+H</kbd><span>History</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+R / F5</kbd><span>Reload</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+= / Ctrl+-</kbd><span>Zoom In / Out</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+0</kbd><span>Zoom Reset</span></div>
+          <div class="bs-shortcut-row"><kbd>Ctrl+Shift+A</kbd><span>Toggle AI Sidebar</span></div>
+        </div>
       </div>
 
       <!-- About Tab -->
@@ -134,13 +198,11 @@ function openAiPanel() {
 
 .bs-divider { border: none; border-top: 1px solid #eceae4; margin: 24px 0; }
 
-.bs-open-ai-btn {
-  padding: 10px 20px; background: #1c1c1c; color: #fcfbf8; border: none;
-  border-radius: 8px; font-size: 13px; font-weight: 600; font-family: inherit;
-  cursor: pointer; transition: all 0.15s;
-  box-shadow: rgba(255,255,255,0.2) 0px 0.5px 0px 0px inset, rgba(0,0,0,0.2) 0px 0px 0px 0.5px inset, rgba(0,0,0,0.05) 0px 1px 2px 0px;
+.bs-api-info {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px;
+  background: rgba(28,28,28,0.03); border-radius: 6px; font-size: 11px; color: #8a8a88;
+  margin-top: 16px;
 }
-.bs-open-ai-btn:hover { opacity: 0.85; }
 
 .bs-about { padding: 8px 0; }
 .bs-about-title { font-size: 28px; font-weight: 600; color: #1c1c1c; margin: 0 0 4px; }
@@ -149,6 +211,10 @@ function openAiPanel() {
 .bs-about-links { display: flex; flex-direction: column; gap: 6px; }
 .bs-about-item { font-size: 12px; color: #5f5f5d; }
 .bs-about-item strong { color: #1c1c1c; }
+.bs-shortcuts { display: flex; flex-direction: column; gap: 6px; }
+.bs-shortcut-row { display: flex; align-items: center; gap: 16px; padding: 6px 10px; background: rgba(28,28,28,0.02); border-radius: 6px; }
+.bs-shortcut-row kbd { display: inline-block; padding: 2px 8px; background: #fcfbf8; border: 1px solid #eceae4; border-radius: 4px; font-family: monospace; font-size: 11px; color: #1c1c1c; min-width: 100px; text-align: center; }
+.bs-shortcut-row span { font-size: 12px; color: #5f5f5d; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 </style>

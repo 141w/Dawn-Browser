@@ -1,5 +1,11 @@
-const { app, BrowserWindow, ipcMain, BrowserView, net, nativeImage, safeStorage, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, BrowserView, net, nativeImage, safeStorage, globalShortcut, Menu, dialog, shell } = require('electron');
 const path = require('path');
+
+const APP_ICON = path.join(__dirname, '../public/icon.png');
+
+/* ── Download manager ── */
+const downloads = new Map()
+let nextDownloadId = 1
 
 const NEWTAB_URL = 'dawn://newtab';
 const SETTINGS_URL = 'dawn://settings';
@@ -80,6 +86,7 @@ let tabSidebarWidth = 240;
 let tabs = new Map();
 let activeTabId = null;
 let nextTabId = 1;
+let closedTabs = [];
 
 function findTabIdByWebContents(sender) {
   for (const [id, tab] of tabs) {
@@ -104,12 +111,25 @@ function createMainWindow() {
     frame: false,
     show: false,
     title: 'Dawn',
+    icon: APP_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
+
+  /* ── Right-click context menu ── */
+  const mainMenu = Menu.buildFromTemplate([
+    { label: '剪切', role: 'cut' },
+    { label: '复制', role: 'copy' },
+    { label: '粘贴', role: 'paste' },
+    { type: 'separator' },
+    { label: '全选', role: 'selectAll' }
+  ])
+  mainWindow.webContents.on('context-menu', () => {
+    mainMenu.popup({ window: mainWindow })
+  })
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -167,6 +187,32 @@ function createBrowserView(url) {
     }
   });
 
+  // Right-click menu for BrowserView web pages
+  const pageMenu = Menu.buildFromTemplate([
+    { label: '后退', click: () => { if (view.webContents.canGoBack()) view.webContents.goBack() }, enabled: false },
+    { label: '前进', click: () => { if (view.webContents.canGoForward()) view.webContents.goForward() } },
+    { label: '刷新', click: () => view.webContents.reload() },
+    { type: 'separator' },
+    { label: '在新窗口打开', click: () => {
+      const currentUrl = view.webContents.getURL()
+      if (!currentUrl || currentUrl.startsWith('dawn://') || currentUrl.startsWith('file://')) return
+      const newWin = new BrowserWindow({
+        width: 1200, height: 800, icon: APP_ICON, title: 'Dawn',
+        webPreferences: { contextIsolation: true, nodeIntegration: false }
+      })
+      newWin.loadURL(currentUrl)
+      newWin.once('ready-to-show', () => newWin.show())
+    }},
+    { type: 'separator' },
+    { label: '复制', role: 'copy' },
+    { label: '全选', role: 'selectAll' }
+  ])
+  view.webContents.on('context-menu', (_, params) => {
+    pageMenu.items[0].enabled = view.webContents.canGoBack()
+    pageMenu.items[1].enabled = view.webContents.canGoForward()
+    pageMenu.popup({ window: mainWindow })
+  })
+
   const loadUrl = isNewTabUrl(url) ? getNewTabUrl() : isSettingsUrl(url) ? getSettingsUrl() : url;
 
   view.webContents.loadURL(loadUrl).catch(e => {
@@ -210,14 +256,20 @@ function createBrowserView(url) {
       }
       // For doc tabs: keep original URL and title set by renderer
     }
-    // Show/hide BrowserView: hide for dawn:// pages, show for web
+    // Show/hide BrowserView: hide for newtab/doc pages, KEEP for settings
+    const hideBrowserView = isDawn && normalized !== SETTINGS_URL
     if (tabId === activeTabId && mainWindow && !mainWindow.isDestroyed()) {
-      if (!isDawn) {
+      if (!hideBrowserView) {
         resizeBrowserView(view);
         try { mainWindow.addBrowserView(view); } catch {}
       } else {
         try { mainWindow.removeBrowserView(view); } catch {}
       }
+      // Record history for real web URLs
+      if (!isDawn && normalized && !normalized.startsWith('file://') && !normalized.startsWith('dawn://')) {
+        try { mainWindow.webContents.send('history-entry', { url: normalized, title: tab ? tab.title : '', visitTime: Date.now() }) } catch {}
+      }
+
       const sendUrl = wasDoc ? (tab ? tab.url : normalized) : normalized;
       const sendTitle = wasDoc ? (tab ? tab.title || 'Document' : 'Document') : (tab ? tab.title : 'New Tab');
       mainWindow.webContents.send('did-navigate', sendUrl, sendTitle);
@@ -271,11 +323,54 @@ function createBrowserView(url) {
     }
   });
 
+  view.webContents.on('zoom-changed', (event, zoomDirection) => {
+    const newZoom = view.webContents.getZoomLevel()
+    const tabId = getTabIdByView(view)
+    if (tabId && tabs.has(tabId)) {
+      tabs.get(tabId).zoomLevel = newZoom
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('zoom-changed', newZoom)
+      }
+    }
+  })
+
   view.webContents.on('render-process-gone', (event, details) => {
     console.error('[Dawn] Render process gone:', details.reason);
     const tabId = getTabIdByView(view);
     if (tabId) removeTab(tabId);
   });
+
+  // Download handler for this BrowserView
+  view.webContents.session.on('will-download', (event, item) => {
+    const fileName = item.getFilename() || 'download'
+    item.setSaveDialogOptions({
+      defaultPath: fileName,
+      filters: [{ name: 'All Files', extensions: ['*'] }]
+    })
+    const dlId = 'dl_' + (nextDownloadId++)
+    const entry = {
+      id: dlId, url: item.getURL(), fileName, receivedBytes: 0,
+      totalBytes: item.getTotalBytes(), state: 'progressing', startTime: Date.now()
+    }
+    downloads.set(dlId, entry)
+    const broadcast = (ch, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ch, data)
+      if (panelWindow && !panelWindow.isDestroyed()) panelWindow.webContents.send(ch, data)
+    }
+    broadcast('download-started', entry)
+    item.on('updated', () => {
+      entry.receivedBytes = item.getReceivedBytes()
+      entry.totalBytes = item.getTotalBytes()
+      entry.state = 'progressing'
+      broadcast('download-progress', entry)
+    })
+    item.on('done', (e, state) => {
+      entry.state = state
+      entry.filePath = item.getSavePath()
+      broadcast('download-completed', entry)
+    })
+    // Don't call item.setSavePath() — let the native save dialog handle it
+  })
 
   return view;
 }
@@ -339,7 +434,7 @@ function switchTab(tabId) {
     } else if (!isHome) {
       resizeBrowserView(view);
     }
-    view.webContents.setZoomLevel(0);
+    view.webContents.setZoomLevel(tabs.get(tabId).zoomLevel || 0);
   } catch (e) {
     console.error('[Dawn] Failed to set BrowserView:', e.message);
   }
@@ -391,7 +486,8 @@ function addTab(url = NEWTAB_URL, activate = true) {
   tabs.set(tabId, {
     view,
     url,
-    title: isNewTabUrl(url) ? 'New Tab' : url
+    title: isNewTabUrl(url) ? 'New Tab' : url,
+    zoomLevel: 0
   });
 
   if (activate) {
@@ -410,6 +506,10 @@ function removeTab(tabId) {
 
   const { view } = tabs.get(tabId);
   const wasActive = tabId === activeTabId;
+
+  // Save for Ctrl+Shift+T restore
+  closedTabs.push({ url: tab.url, title: tab.title })
+  if (closedTabs.length > 32) closedTabs.shift()
 
   try { mainWindow.removeBrowserView(view); } catch {}
   try { if (!view.webContents.isDestroyed()) view.webContents.destroy(); } catch {}
@@ -677,14 +777,23 @@ ipcMain.handle('get-page-metadata', safeIpc(async () => {
 
 ipcMain.handle('navigate-to', safeIpc(async (event, url) => {
   const view = getActiveView();
-  if (!view) return false;
-  view.webContents.loadURL(url);
+  if (!view) return { ok: false, error: 'No active browser tab' };
+  // Normalize URL: add https:// if no protocol
+  if (!/^https?:\/\//i.test(url) && !url.startsWith('file://') && !url.startsWith('dawn://')) {
+    url = 'https://' + url;
+  }
+  try {
+    await view.webContents.loadURL(url);
+  } catch (e) {
+    console.error('[Dawn] navigate-to loadURL failed:', e.message);
+    return { ok: false, error: e.message };
+  }
   // Ensure BrowserView is visible when navigating to a real URL
   if (mainWindow && !mainWindow.isDestroyed() && !isNewTabUrl(url) && !isSettingsUrl(url)) {
-    resizeBrowserView(view);  // set bounds before adding
+    resizeBrowserView(view);
     try { mainWindow.addBrowserView(view); } catch {}
   }
-  return true;
+  return { ok: true, url };
 }));
 
 ipcMain.handle('web-search', safeIpc(async (event, query) => {
@@ -790,6 +899,211 @@ ipcMain.handle('inject-content-script', safeIpc(async () => {
   `);
   return true;
 }));
+
+/* ── Find-in-page ── */
+let findText = ''
+ipcMain.handle('find-in-page', safeIpc(async (event, text) => {
+  const view = getActiveView()
+  if (!view || view.webContents.isDestroyed()) return { matches: 0 }
+  findText = text
+  if (text) {
+    view.webContents.findInPage(text, { forward: true, findNext: false })
+  } else {
+    view.webContents.stopFindInPage('clearSelection')
+    return { matches: 0 }
+  }
+  // Wait for found-in-page result
+  return new Promise((resolve) => {
+    const handler = (e, result) => {
+      view.webContents.removeListener('found-in-page', handler)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('found-in-page', result)
+      }
+      resolve(result)
+    }
+    view.webContents.on('found-in-page', handler)
+  })
+}))
+ipcMain.handle('get-downloads', safeIpc(() => {
+  return Array.from(downloads.values())
+}))
+ipcMain.handle('cancel-download', safeIpc((event, dlId) => {
+  const dl = downloads.get(dlId)
+  if (dl) { dl.state = 'cancelled'; downloads.delete(dlId) }
+}))
+ipcMain.handle('open-download-file', safeIpc(async (event, filePath) => {
+  if (filePath) await shell.openPath(filePath)
+}))
+ipcMain.handle('clear-downloads', safeIpc(() => {
+  downloads.clear()
+}))
+
+/* ── Panel overlay window (floats above BrowserView) ── */
+let panelWindow = null
+let panelMode = ''
+
+function closePanelWindow() {
+  if (panelWindow && !panelWindow.isDestroyed()) {
+    try {
+      panelWindow.removeAllListeners('blur')
+      panelWindow.close()
+    } catch {}
+  }
+  panelWindow = null
+  panelMode = ''
+}
+
+function updatePanelPosition() {
+  if (!panelWindow || panelWindow.isDestroyed() || !mainWindow) return
+  const mwBounds = mainWindow.getBounds()
+  const contentSize = mainWindow.getContentSize()
+  const chromeH = mwBounds.height - contentSize[1]
+  const toolbarBottom = chromeH + 74 // titlebar(36) + toolbar(38) → just below the toolbar buttons
+  const maxHeight = contentSize[1] - 74 // remaining space below toolbar
+  const panelW = 400
+  const panelH = Math.min(480, maxHeight)
+  panelWindow.setBounds({
+    x: mwBounds.x + mwBounds.width - panelW - 8, // 8px margin from right edge
+    y: mwBounds.y + toolbarBottom + 4,            // 4px gap below toolbar
+    width: panelW,
+    height: panelH
+  })
+}
+
+function showPanelWindow(mode) {
+  if (panelWindow && !panelWindow.isDestroyed() && panelMode === mode) {
+    closePanelWindow()
+    return
+  }
+  closePanelWindow()
+
+  updatePanelPosition()
+  panelMode = mode
+  panelWindow = new BrowserWindow({
+    parent: mainWindow,
+    frame: false,
+    transparent: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#f7f4ed',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  // In dev, load from Vite server; in prod, load from file
+  const panelUrl = isDev
+    ? getDevServerUrl() + '/panel-overlay.html'
+    : 'file://' + path.join(__dirname, '../dist/panel-overlay.html')
+
+  panelWindow.loadURL(panelUrl)
+  panelWindow.once('ready-to-show', () => {
+    updatePanelPosition()
+    panelWindow.show()
+    panelWindow.webContents.send('panel-mode', mode)
+  })
+
+  // Auto-close when clicking outside (panel loses focus)
+  panelWindow.on('blur', () => {
+    closePanelWindow()
+  })
+
+  // Also close on Escape key in panel
+  panelWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape') {
+      closePanelWindow()
+    }
+  })
+
+  // Follow main window when moved/resized
+  const followMain = () => { if (panelWindow && !panelWindow.isDestroyed()) updatePanelPosition() }
+  if (mainWindow) {
+    mainWindow.on('move', followMain)
+    mainWindow.on('resize', followMain)
+  }
+  panelWindow.on('closed', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.removeListener('move', followMain)
+      mainWindow.removeListener('resize', followMain)
+    }
+    panelWindow = null
+    panelMode = ''
+  })
+}
+
+// Pass data from main window to panel
+ipcMain.handle('panel-get-data', safeIpc(async (event, mode) => {
+  if (mode === 'history') {
+    try { return await mainWindow.webContents.executeJavaScript('window.__panelHistoryData') } catch { return null }
+  }
+  if (mode === 'downloads') {
+    return Array.from(downloads.values())
+  }
+  return null
+}))
+
+ipcMain.handle('show-panel', safeIpc((event, mode) => {
+  showPanelWindow(mode)
+}))
+
+ipcMain.handle('hide-panel', safeIpc(() => {
+  closePanelWindow()
+}))
+
+ipcMain.handle('panel-action', safeIpc(async (event, action) => {
+  // Forward actions from panel back to main window renderer
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('panel-action', action)
+  }
+}))
+
+/* ── Page zoom ── */
+function getActiveTab() {
+  if (!activeTabId || !tabs.has(activeTabId)) return null
+  return tabs.get(activeTabId)
+}
+function adjustZoom(delta) {
+  const tab = getActiveTab()
+  if (!tab || tab.view.webContents.isDestroyed()) return
+  tab.zoomLevel = Math.max(-5, Math.min(5, (tab.zoomLevel || 0) + delta))
+  tab.view.webContents.setZoomLevel(tab.zoomLevel)
+  if (mainWindow) mainWindow.webContents.send('zoom-changed', tab.zoomLevel)
+}
+ipcMain.handle('zoom-in', safeIpc(() => adjustZoom(0.5)))
+ipcMain.handle('zoom-out', safeIpc(() => adjustZoom(-0.5)))
+ipcMain.handle('zoom-reset', safeIpc(() => {
+  const tab = getActiveTab()
+  if (!tab || tab.view.webContents.isDestroyed()) return
+  tab.zoomLevel = 0
+  tab.view.webContents.setZoomLevel(0)
+  if (mainWindow) mainWindow.webContents.send('zoom-changed', 0)
+}))
+ipcMain.handle('get-platform', safeIpc(() => process.platform))
+
+ipcMain.handle('get-zoom', safeIpc(() => {
+  const tab = getActiveTab()
+  return tab ? (tab.zoomLevel || 0) : 0
+}))
+
+ipcMain.handle('restore-closed-tab', safeIpc(() => {
+  if (closedTabs.length === 0) return null
+  const entry = closedTabs.pop()
+  return addTab(entry.url, true)
+}))
+
+ipcMain.handle('stop-find-in-page', safeIpc(() => {
+  const view = getActiveView()
+  if (view && !view.webContents.isDestroyed()) {
+    view.webContents.stopFindInPage('clearSelection')
+  }
+  findText = ''
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('find-in-page-closed')
+  }
+}))
 
 ipcMain.handle('encrypt-secret', safeIpc((event, plaintext) => {
   if (!plaintext) return null;
@@ -962,8 +1276,62 @@ function setupKeyboardShortcuts() {
       try { mainWindow.webContents.send('toggle-ai-sidebar'); } catch {}
       return;
     }
+    if (ctrl && input.key === 'f') {
+      event.preventDefault();
+      try { mainWindow.webContents.send('focus-find-bar'); } catch {}
+      return;
+    }
+    if (ctrl && shift && input.key === 't') {
+      event.preventDefault();
+      if (closedTabs.length > 0) {
+        const entry = closedTabs.pop()
+        addTab(entry.url, true)
+      }
+      return;
+    }
+    if (ctrl && input.key === 'h') {
+      event.preventDefault();
+      try { mainWindow.webContents.send('toggle-history'); } catch {}
+      return;
+    }
+    if (ctrl && (input.key === '=' || input.key === '+')) {
+      event.preventDefault();
+      adjustZoom(0.5)
+      return;
+    }
+    if (ctrl && input.key === '-') {
+      event.preventDefault();
+      adjustZoom(-0.5)
+      return;
+    }
+    if (ctrl && input.key === '0') {
+      event.preventDefault();
+      const tab = getActiveTab()
+      if (tab && !tab.view.webContents.isDestroyed()) {
+        tab.zoomLevel = 0
+        tab.view.webContents.setZoomLevel(0)
+      }
+      return;
+    }
   });
 }
+
+/* ── Multi-window: open current page URL in standalone window ── */
+ipcMain.handle('new-window', safeIpc(() => {
+  const view = getActiveView()
+  if (!view || view.webContents.isDestroyed()) return { ok: false, error: 'No active page' }
+  const currentUrl = view.webContents.getURL()
+  if (!currentUrl || currentUrl.startsWith('dawn://') || currentUrl.startsWith('file://')) {
+    return { ok: false, error: 'Cannot open this page in a new window' }
+  }
+  const newWin = new BrowserWindow({
+    width: 1200, height: 800, icon: APP_ICON, title: 'Dawn',
+    webPreferences: { contextIsolation: true, nodeIntegration: false }
+  })
+  newWin.loadURL(currentUrl)
+  newWin.once('ready-to-show', () => newWin.show())
+  return { ok: true }
+}))
 
 app.whenReady().then(async () => {
   createMainWindow();
@@ -1004,3 +1372,14 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+/* ── Clear on exit ── */
+ipcMain.handle('clear-on-exit', safeIpc(async () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.session.clearStorageData()
+    mainWindow.webContents.executeJavaScript('localStorage.clear();indexedDB.deleteDatabase("dawn-ai-memory")')
+  }
+  for (const [id, tab] of tabs) {
+    try { tab.view.webContents.session.clearStorageData() } catch {}
+  }
+}))
