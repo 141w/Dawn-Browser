@@ -28,7 +28,7 @@ const showModelMenu = ref(false)
 const showMoreMenu = ref(false)
 const slashChip = ref(null) // { name, label, description, execute }
 
-/* 闁冲厜鍋撻柍鍏夊亾 Saved models 闁冲厜鍋撻柍鍏夊亾 */
+/* ── Saved models ── */
 function loadSavedModels() {
   try { return JSON.parse(localStorage.getItem('dawn-saved-models') || '[]') } catch { return [] }
 }
@@ -72,7 +72,7 @@ function selectCustomModel(m) {
   showModelMenu.value = false
 }
 
-/* 闁冲厜鍋撻柍鍏夊亾 Auto-resize 闁冲厜鍋撻柍鍏夊亾 */
+/* ── Auto-resize ── */
 function autoResize() {
   nextTick(() => {
     const el = textareaEl.value
@@ -128,7 +128,7 @@ async function insertRef(refItem) {
     } else if (refItem.type === 'file') {
       // Reference an open document tab
       addContextRef('tab', {
-        label: '妫ｅ啯鎯?' + (refItem.title || refItem.label || 'Document').slice(0, 40),
+      label: (refItem.title || refItem.label || 'Document').slice(0, 40),
         preview: refItem.url,
         url: refItem.url,
         tabId: refItem.id,
@@ -279,7 +279,7 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
       <div class="ci-bar">
         <div class="ci-bar-left">
           <!-- Agent/Chat toggle -->
-          <button class="ci-agent-toggle" :class="{ active: agentMode }" @click="toggleAgentMode" :title="agentMode ? 'Agent 婵☆垪鈧磭纭€闁挎稒顑婭 闁告瑯鍨遍幖鐑藉箳瑜庣粊鑽ゆ喆閸繃鐝? : 'Chat 婵☆垪鈧磭纭€闁挎稒姘ㄩ崙鐣屸偓鐢殿攰閻?">
+          <button class="ci-agent-toggle" :class="{ active: agentMode }" @click="toggleAgentMode" :title="agentMode ? t('chat.agentMode') : t('chat.chatMode')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             <span>{{ agentMode ? 'Agent' : 'Chat' }}</span>
           </button>
@@ -312,17 +312,17 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
 
           <!-- More button -->
           <div class="ci-drop-wrap">
-            <button class="ci-icon-btn" @click.stop="showMoreMenu=!showMoreMenu; showSlashPanel=false; showRefPicker=false; showModelMenu=false" title="闁哄洦娼欓ˇ?>
+            <button class="ci-icon-btn" @click.stop="showMoreMenu=!showMoreMenu; showSlashPanel=false; showRefPicker=false; showModelMenu=false" :title="t('chat.more') || 'More'">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><line x1="8" y1="12" x2="21" y2="12"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
             </button>
             <div v-if="showMoreMenu" class="ci-dropdown" @click.stop>
               <div class="ci-drop-item" @click="showMoreMenu=false; inputMsg=inputMsg+'\n[Attach page]'; autoResize()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-                <span>闂傚嫬瀚慨鐐淬亜閻㈠憡妗?/span>
+                <span>{{ t('chat.more') || 'More' }}</span>
               </div>
               <div class="ci-drop-item" @click="showMoreMenu=false">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                <span>闁规惌浜滃ù姗€宕ｉ幋锔瑰亾?/span>
+                <span>More</span>
               </div>
             </div>
           </div>
@@ -337,12 +337,12 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             </button>
             <div v-if="showModelMenu" class="ci-dropdown ci-dropdown-right" @click.stop>
-              <div class="ci-drop-head">鐎规瓕寮撶换姘扁偓娑欘焽濞堟垵螣閳ュ磭鈧?/div>
-              <div v-if="savedModels.length === 0" class="ci-drop-empty">闁告瑦鍨块埀顑跨劍缁夌兘骞侀姘€甸柤濂変簻婵晜绌卞┑鍡欐憼</div>
+              <div class="ci-drop-head">{{ t('chat.savedModels') || 'Saved Models' }}</div>
+              <div v-if="savedModels.length === 0 && customModels.length === 0" class="ci-drop-empty">{{ t('chat.sendToSave') || 'Send to save' }}</div>
               <div v-for="(m,idx) in savedModels" :key="idx" class="ci-drop-item" @click="selectSavedModel(m)">
                 <span class="ci-drop-name">{{ m.model }}</span>
                 <span class="ci-drop-desc">{{ m.providerName }}</span>
-                <button class="ci-drop-del" @click.stop="removeSavedModel(idx)" title="闁告帞濞€濞?>
+                <button class="ci-drop-del" @click.stop="removeSavedModel(idx)" :title="t('chat.deleteModel') || 'Delete'">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>
