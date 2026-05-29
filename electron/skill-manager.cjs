@@ -312,6 +312,15 @@ function openSkillFolder(name) {
   if (fs.existsSync(skillDir)) shell.openPath(skillDir)
 }
 
+function readSkillContent(name) {
+  const manifest = loadManifest()
+  const entry = manifest[name]
+  const skillDir = entry ? (entry.path || path.join(SKILLS_DIR, name)) : path.join(SKILLS_DIR, name)
+  const mdPath = path.join(skillDir, 'SKILL.md')
+  if (!fs.existsSync(mdPath)) return null
+  return fs.readFileSync(mdPath, 'utf8')
+}
+
 function registerSkillIpc() {
   ipcMain.handle('skill:install-github', async (event, url, useSymlink) => {
     try { return await installFromGithub(url, useSymlink) }
@@ -348,6 +357,11 @@ function registerSkillIpc() {
     try { openSkillFolder(name) }
     catch {}
   })
+  ipcMain.handle('skill:read-content', (event, name) => {
+    try { return readSkillContent(name) }
+    catch { return null }
+  })
+
 }
 
 module.exports = { registerSkillIpc }

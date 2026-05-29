@@ -176,10 +176,20 @@ function buildSkillCommandSpecs(skillsList) {
       skillName: skill.name,
       skillFilePath: skill.filePath,
       execute: async (context, args) => {
-        // Skill slash commands load the SKILL.md content and present it as context
+        // Load SKILL.md content and include it directly in the prompt
+        let skillContent = skill._content || ''
+        if (!skillContent && skill.filePath && window.electronAPI?.skillReadContent) {
+          try { skillContent = await window.electronAPI.skillReadContent(skill.name) || '' } catch {}
+        }
+        if (skillContent) {
+          return {
+            type: 'prompt',
+            message: `Please use the skill "${skill.name}" to help with the following task. Here is the full skill instruction:\n\n---\n${skillContent}\n---\n\nUser request: `
+          }
+        }
         return {
           type: 'prompt',
-          message: `Please use the skill "${skill.name}". Read the skill file at: ${skill.filePath}\n\nThe skill description is: ${skill.description}`
+          message: `Please use the skill "${skill.name}". Skill description: ${skill.description}`
         }
       }
     })

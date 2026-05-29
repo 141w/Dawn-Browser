@@ -1,4 +1,4 @@
-﻿
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 const validChannels = new Set([
@@ -134,6 +134,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     skillUpdate: (name) => ipcRenderer.invoke('skill:update', name),
     skillList: () => ipcRenderer.invoke('skill:list'),
     skillOpenFolder: (name) => ipcRenderer.invoke('skill:open-folder', name),
+    skillReadContent: (name) => ipcRenderer.invoke('skill:read-content', name),
 
   on: (channel, callback) => {
     if (!validChannels.has(channel)) return;
