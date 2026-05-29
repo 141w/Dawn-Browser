@@ -2,7 +2,6 @@
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAiConfig } from './composables/useAiConfig'
 import { useAiChat } from './composables/useAiChat'
-import { useToolSystem } from './composables/useToolSystem'
 import { useSlashCommands } from './composables/useSlashCommands'
 import { useAgentLoop } from './composables/useAgentLoop'
 import { useContextManager } from './composables/useContextManager'
@@ -57,7 +56,6 @@ const props = defineProps({ embedded: Boolean })
 
 const { config, providers, getProvider, getEffectiveModel, getEffectiveBaseUrl, getApiFormat } = useAiConfig()
 const { conversations, activeConvId, isStreaming, streamError, pendingToolCalls, toolConfirmRequired, agentState, getActiveConversation, createConversation, deleteConversation, sendMessage, stopStreaming, skipCurrentTool, interruptAgent, confirmToolCall, editMessage, regenerateResponse, branchConversation, exportAsMarkdown, exportAsHtml } = useAiChat()
-const { getRegisteredTools, getEnabledTools, setPermission, resolvePermission } = useToolSystem()
 const { getFilteredCommands, matchCommand, getAllCommands, getCommandsByCategory } = useSlashCommands()
 const { activePlan, getPlanSummary } = useAgentLoop()
 const { contextStats } = useContextManager()
@@ -65,18 +63,13 @@ const { pageHints, analyzePage, addSmartBookmark } = useProactiveAI()
 
 const activeConv = getActiveConversation()
 const messagesEl = ref(null)
-const showSettings = ref(false)
 const showConvList = ref(false)
-const settingsTab = ref('model')
-const newCustomModel = ref('')
 const pageMeta = ref(null)
 const pageContent = ref(null)
 const editingMsgIdx = ref(-1)
 const editingMsgContent = ref('')
 const showSummaryPanel = ref(false)
 const showFormTemplates = ref(false)
-const formTemplates = ref([])
-const newTemplateName = ref('')
 const translationResult = ref(null)
 const showTranslation = ref(false)
 
@@ -93,21 +86,6 @@ function handleChatSend(finalMsg, slashCmd, displayMsg) {
 }
 
 /* ── Computed ── */
-const currentProvider = computed(() => getProvider())
-const currentModels = computed(() => {
-  const p = currentProvider.value
-  const models = [...p.models]
-  // Include all custom models
-  const customList = config.value.customModels || []
-  for (const m of customList) {
-    if (!models.includes(m)) models.push(m)
-  }
-  // Legacy: include customModel if not already in list
-  if (config.value.customModel && !models.includes(config.value.customModel)) models.push(config.value.customModel)
-  return models
-})
-const enabledTools = computed(() => getEnabledTools())
-const browserTools = computed(() => getRegisteredTools().map(t => ({ ...t, currentPermission: resolvePermission(t.name, t.permission) })))
 const planSummary = computed(() => getPlanSummary())
 
 /* ── Page ── */
@@ -153,34 +131,13 @@ async function renderMultimodal() {
 watch(() => activeConv.value?.messages?.length, () => { nextTick(scrollToBottom); renderMultimodal() })
 
 /* ── Conversation ── */
-function newChat() { createConversation(); showConvList.value = false; showSettings.value = false }
+function newChat() { createConversation(); showConvList.value = false }
 function switchConv(id) { activeConvId.value = id; showConvList.value = false; nextTick(renderMultimodal) }
 
-function onProviderChange() {
-  const p = getProvider()
-  if (p.models.length > 0) config.value.model = p.models[0]
-  config.value.customModel = ''
-}
-function addCustomModel() {
-  const m = newCustomModel.value.trim()
-  if (!m) return
-  if (!config.value.customModels) config.value.customModels = []
-  if (!config.value.customModels.includes(m)) {
-    config.value.customModels.push(m)
-  }
-  config.value.customModel = m
-  config.value.model = m
-  newCustomModel.value = ''
-}
 
-/* ── Tools ── */
-function handleToolPermissionChange(toolName, level) {
-  setPermission(toolName, level === 'default' ? null : level)
-}
 
 /* ── Slash ── */
 function insertSlashCommand(cmdName) {
-  showSettings.value = false
   showConvList.value = false
 }
 
@@ -222,16 +179,6 @@ function cancelEdit() { editingMsgIdx.value = -1; editingMsgContent.value = '' }
 function doRegenerate() { regenerateResponse(activeConvId.value) }
 function doBranch(idx) { branchConversation(activeConvId.value, idx) }
 
-/* ── Form templates ── */
-function loadFormTemplates() { const saved = localStorage.getItem('dawn-form-templates'); formTemplates.value = saved ? JSON.parse(saved) : [] }
-function saveFormTemplate() {
-  const name = newTemplateName.value.trim()
-  if (!name) return
-  formTemplates.value.push({ name, fields: [], createdAt: Date.now() })
-  localStorage.setItem('dawn-form-templates', JSON.stringify(formTemplates.value))
-  newTemplateName.value = ''
-}
-function deleteFormTemplate(idx) { formTemplates.value.splice(idx, 1); localStorage.setItem('dawn-form-templates', JSON.stringify(formTemplates.value)) }
 
 /* ── Translation ── */
 function showTranslationCompare() {
@@ -253,7 +200,7 @@ function showTranslationCompare() {
 /* ── Init ── */
 let metaInterval = null
 onMounted(() => {
-  fetchPageMeta(); fetchPageContent(); loadFormTemplates()
+  fetchPageMeta(); fetchPageContent()
   metaInterval = setInterval(() => {
     fetchPageMeta().then(() => { if (pageMeta.value) addSmartBookmark(pageMeta.value) })
     fetchPageContent().then(() => { if (pageContent.value) analyzePage(pageContent.value) })
@@ -287,7 +234,7 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
         <button class="ai-icon-btn" @click="newChat" :title="t('ai.newChat')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         </button>
-        <button class="ai-icon-btn" @click="showSettings = !showSettings" :class="{ active: showSettings }" :title="t('ai.settings')">
+        <button class="ai-icon-btn" @click="window.electronAPI?.createTab('dawn://settings')" :title="t('ai.settings')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         </button>
       </div>
@@ -316,48 +263,8 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
     </div>
     <div v-if="convContextMenu || showExportMenu" style="position:fixed;inset:0;z-index:199;" @click="closeConvContextMenu(); showExportMenu=false"></div>
 
-    <div v-else-if="showSettings" class="ai-settings">
-      <div class="ai-settings-tabs">
-        <button class="ai-tab" :class="{ active: settingsTab === 'model' }" @click="settingsTab = 'model'">{{ t('settings.model') }}</button>
-        <button class="ai-tab" :class="{ active: settingsTab === 'tools' }" @click="settingsTab = 'tools'">{{ t('settings.tools') }}</button>
-        <button class="ai-tab" :class="{ active: settingsTab === 'forms' }" @click="settingsTab = 'forms'">{{ t('settings.forms') }}</button>
-      </div>
 
-      <template v-if="settingsTab === 'model'">
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.provider') }}</label><select class="ai-select" v-model="config.provider" @change="onProviderChange"><option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option></select></div>
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.modelLabel') }}</label><select class="ai-select" v-model="config.model"><option v-for="m in currentModels" :key="m" :value="m">{{ m }}</option></select><div class="ai-custom-model"><input class="ai-input" v-model="newCustomModel" :placeholder="t('settings.customModel')" @keydown.enter="addCustomModel" /><button class="ai-small-btn" @click="addCustomModel">{{ t('settings.add') }}</button></div></div>
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.apiKey') }}</label><input class="ai-input" type="password" v-model="config.apiKey" :placeholder="currentProvider.apiKeyRequired ? 'Required' : 'Optional'" /></div>
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.baseUrl') }}</label><input class="ai-input" v-model="config.baseUrl" :placeholder="currentProvider.baseUrl" /></div>
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.temperature') }}: {{ config.temperature }}</label><input class="ai-range" type="range" min="0" max="2" step="0.1" v-model.number="config.temperature" /></div>
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.maxTokens') }}</label><input class="ai-input" type="number" v-model.number="config.maxTokens" min="256" max="128000" step="256" /></div>
-        <div class="ai-setting-group"><label class="ai-label">{{ t('settings.systemPrompt') }}</label><textarea class="ai-textarea" v-model="config.systemPrompt" rows="3"></textarea></div>
-        <div class="ai-setting-info"><span>Format: {{ getApiFormat() }}</span><span>Endpoint: {{ getEffectiveBaseUrl() }}</span><span>Model: {{ getEffectiveModel() }}</span></div>
-      </template>
-
-      <template v-else-if="settingsTab === 'tools'">
-        <div class="ai-tool-settings">
-          <p class="ai-tool-settings-desc">{{ t('settings.toolsDesc') }}</p>
-          <div class="ai-tool-item" v-for="tool in browserTools" :key="tool.name">
-            <div class="ai-tool-info"><span class="ai-tool-name">{{ tool.name }}</span><span class="ai-tool-desc">{{ tool.description }}</span></div>
-            <select class="ai-tool-perm-select" :value="tool.currentPermission" @change="handleToolPermissionChange(tool.name, $event.target.value)"><option value="default">{{ t('perm.default') }} ({{ tool.permission }})</option><option value="safe">{{ t('perm.safe') }}</option><option value="confirm">{{ t('perm.confirm') }}</option><option value="deny">{{ t('perm.deny') }}</option></select>
-          </div>
-        </div>
-      </template>
-
-      <template v-else-if="settingsTab === 'forms'">
-        <div class="ai-form-templates">
-          <p class="ai-tool-settings-desc">{{ t('settings.formsDesc') }}</p>
-          <div class="ai-save-template"><input class="ai-input" v-model="newTemplateName" :placeholder="t('settings.templateName')" @keydown.enter="saveFormTemplate" /><button class="ai-small-btn" @click="saveFormTemplate" :disabled="!newTemplateName.trim()">{{ t('settings.saveTemplate') }}</button></div>
-          <div v-if="formTemplates.length === 0" class="ai-empty" style="padding:16px">{{ t('settings.noTemplates') }}</div>
-          <div v-for="(tmpl, idx) in formTemplates" :key="idx" class="ai-template-item">
-            <div class="ai-template-info"><span class="ai-template-name">{{ tmpl.name }}</span><span class="ai-template-fields">{{ tmpl.fields?.length || 0 }} {{ t('settings.fields') }}</span></div>
-            <div class="ai-template-actions"><button class="ai-small-btn" @click="fillFromTemplate(tmpl)">{{ t('settings.fill') }}</button><button class="ai-template-del" @click="deleteFormTemplate(idx)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
-          </div>
-        </div>
-      </template>
-    </div>
-
-    <div v-else class="ai-chat" :class="{ 'ai-chat-panels': showSummaryPanel || showTranslation }">
+    <div v-if="!showConvList" class="ai-chat" :class="{ 'ai-chat-panels': showSummaryPanel || showTranslation }">
       <!-- Agent status bar -->
       <div v-if="agentState !== 'idle'" class="ai-agent-bar" :class="agentState">
         <span class="ai-agent-dot"></span>
@@ -481,39 +388,6 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
 .ai-conv-item:hover .ai-conv-del { opacity: 1; }
 .ai-conv-del:hover { background: var(--color-bg-active); color: var(--color-text); }
 .ai-empty { padding: 20px; text-align: center; color: var(--color-text-muted); font-size: 13px; }
-.ai-settings { flex: 1; overflow-y: auto; padding: 12px; }
-.ai-settings-tabs { display: flex; gap: 2px; margin-bottom: 14px; }
-.ai-tab { flex: 1; padding: 6px 0; background: transparent; border: none; border-bottom: 2px solid transparent; font-size: 12px; font-weight: 600; color: var(--color-text-muted); cursor: pointer; transition: all 0.15s; }
-.ai-tab.active { color: var(--color-text); border-bottom-color: var(--color-text); }
-.ai-setting-group { margin-bottom: 14px; }
-.ai-label { display: block; font-size: 12px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 4px; }
-.ai-select, .ai-input { width: 100%; padding: 6px 8px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; font-size: 13px; font-family: inherit; color: var(--color-text); outline: none; }
-.ai-select:focus, .ai-input:focus { border-color: var(--color-border-interactive); }
-.ai-custom-model { display: flex; gap: 4px; margin-top: 4px; }
-.ai-custom-model .ai-input { flex: 1; }
-.ai-small-btn { padding: 6px 10px; background: var(--color-user-bubble); color: var(--color-user-text); border: none; border-radius: 6px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
-.ai-small-btn:hover { opacity: 0.85; }
-.ai-range { width: 100%; accent-color: var(--color-text); }
-.ai-textarea { width: 100%; padding: 6px 8px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; font-size: 12px; font-family: inherit; color: var(--color-text); outline: none; resize: vertical; }
-.ai-textarea:focus { border-color: var(--color-border-interactive); }
-.ai-setting-info { display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--color-shadow-sm); border-radius: 6px; font-size: 11px; color: var(--color-text-muted); }
-.ai-tool-settings { padding: 0; }
-.ai-tool-settings-desc { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 10px; }
-.ai-tool-item { display: flex; align-items: center; justify-content: space-between; padding: 8px; margin-bottom: 4px; background: var(--color-bg-hover); border-radius: 6px; gap: 8px; }
-.ai-tool-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.ai-tool-name { font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600; color: var(--color-text); }
-.ai-tool-desc { font-size: 10px; color: var(--color-text-muted); }
-.ai-tool-perm-select { padding: 3px 6px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; font-size: 10px; font-family: inherit; color: var(--color-text); outline: none; flex-shrink: 0; }
-.ai-form-templates { padding: 0; }
-.ai-save-template { display: flex; gap: 6px; margin-bottom: 14px; }
-.ai-save-template .ai-input { flex: 1; }
-.ai-template-item { display: flex; align-items: center; justify-content: space-between; padding: 8px; margin-bottom: 4px; background: var(--color-bg-hover); border-radius: 6px; gap: 8px; }
-.ai-template-info { display: flex; flex-direction: column; min-width: 0; }
-.ai-template-name { font-size: 12px; font-weight: 600; color: var(--color-text); }
-.ai-template-fields { font-size: 10px; color: var(--color-text-muted); }
-.ai-template-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.ai-template-del { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: none; border-radius: 4px; color: var(--color-text-muted); cursor: pointer; }
-.ai-template-del:hover { background: var(--color-error-bg); color: var(--color-error); }
 .ai-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .ai-agent-bar {
   display: flex; align-items: center; gap: 6px; padding: 6px 12px;
@@ -613,4 +487,3 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
 .ai-ctx-item { padding: 6px 12px; font-size: 12px; color: var(--color-text); cursor: pointer; border-radius: 5px; }
 .ai-ctx-item:hover { background: var(--color-bg-hover); }
 .ai-ctx-danger { color: var(--color-error); }</style>
-
