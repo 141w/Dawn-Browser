@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAiConfig } from './composables/useAiConfig'
 import { useAiChat } from './composables/useAiChat'
@@ -8,6 +8,47 @@ import { useAgentLoop } from './composables/useAgentLoop'
 import { useContextManager } from './composables/useContextManager'
 import { useProactiveAI } from './composables/useProactiveAI'
 import { renderMarkdown } from './composables/useMarkdown'
+import hljs from 'highlight.js/lib/core'
+import python from 'highlight.js/lib/languages/python'
+import javascript from 'highlight.js/lib/languages/javascript'
+import css from 'highlight.js/lib/languages/css'
+import json from 'highlight.js/lib/languages/json'
+import bash from 'highlight.js/lib/languages/bash'
+import xml from 'highlight.js/lib/languages/xml'
+import sql from 'highlight.js/lib/languages/sql'
+import java from 'highlight.js/lib/languages/java'
+import cpp from 'highlight.js/lib/languages/cpp'
+import go from 'highlight.js/lib/languages/go'
+import rust from 'highlight.js/lib/languages/rust'
+import typescript from 'highlight.js/lib/languages/typescript'
+import yaml from 'highlight.js/lib/languages/yaml'
+import markdown from 'highlight.js/lib/languages/markdown'
+import mermaid from 'mermaid'
+
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('ts', typescript)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('sh', bash)
+hljs.registerLanguage('shell', bash)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('java', java)
+hljs.registerLanguage('cpp', cpp)
+hljs.registerLanguage('c', cpp)
+hljs.registerLanguage('go', go)
+hljs.registerLanguage('rust', rust)
+hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('yml', yaml)
+hljs.registerLanguage('markdown', markdown)
+hljs.registerLanguage('md', markdown)
+
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
 import { t } from './composables/useI18n'
 import { formatError } from './composables/useErrorFormat'
 import ChatInput from './ChatInput.vue'
@@ -81,11 +122,39 @@ async function fetchPageContent() {
 function scrollToBottom() {
   if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
 }
-watch(() => activeConv.value?.messages?.length, () => nextTick(scrollToBottom))
+
+/* ── Multimodal rendering ── */
+async function renderMultimodal() {
+  await nextTick()
+  if (!messagesEl.value) return
+  // Syntax highlighting for code blocks
+  messagesEl.value.querySelectorAll('pre code:not(.hljs)').forEach(el => {
+    try { hljs.highlightElement(el) } catch(e) {}
+  })
+  // Mermaid diagrams
+  const mermaidEls = messagesEl.value.querySelectorAll('.mk-mermaid:not([data-processed])')
+  if (mermaidEls.length > 0) {
+    try {
+      await mermaid.run({ nodes: mermaidEls })
+      mermaidEls.forEach(el => el.setAttribute('data-processed', 'true'))
+    } catch(e) {
+      mermaidEls.forEach(el => {
+        if (!el.getAttribute('data-processed')) {
+          el.setAttribute('data-processed', 'true')
+          const pre = document.createElement('pre')
+          pre.className = 'mk-code-block'
+          pre.textContent = el.textContent
+          el.replaceWith(pre)
+        }
+      })
+    }
+  }
+}
+watch(() => activeConv.value?.messages?.length, () => { nextTick(scrollToBottom); renderMultimodal() })
 
 /* ── Conversation ── */
 function newChat() { createConversation(); showConvList.value = false; showSettings.value = false }
-function switchConv(id) { activeConvId.value = id; showConvList.value = false }
+function switchConv(id) { activeConvId.value = id; showConvList.value = false; nextTick(renderMultimodal) }
 
 function onProviderChange() {
   const p = getProvider()
@@ -116,16 +185,29 @@ function insertSlashCommand(cmdName) {
 }
 
 /* ── Export ── */
-function downloadExport(fmt) {
-  const activeConv = conversations.value.find(c => c.id === activeConvId.value)
-  if (!activeConv) return
-  const content = fmt === 'md' ? exportAsMarkdown(activeConvId.value) : exportAsHtml(activeConvId.value)
+function downloadExport(fmt, convId) {
+  const id = convId || activeConvId.value
+  const conv = conversations.value.find(c => c.id === id)
+  if (!conv) return
+  const content = fmt === 'md' ? exportAsMarkdown(id) : exportAsHtml(id)
   const blob = new Blob([content], { type: fmt === 'md' ? 'text/markdown' : 'text/html' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = `dawn-chat.md`; a.click()
+  a.href = url
+  const safeTitle = (conv.title || 'chat').replace(/[^\w\u4e00-\u9fff]/g, '_').substring(0, 40)
+  a.download = `dawn-${safeTitle}.${fmt === 'md' ? 'md' : 'html'}`
+  a.click()
   URL.revokeObjectURL(url)
+  showExportMenu.value = false
+  convContextMenu.value = null
 }
+
+function onConvContextMenu(e, conv) {
+  e.preventDefault()
+  convContextMenu.value = { id: conv.id, x: e.clientX, y: e.clientY }
+}
+
+function closeConvContextMenu() { convContextMenu.value = null }
 
 /* ── Edit ── */
 function startEdit(idx, content) { editingMsgIdx.value = idx; editingMsgContent.value = content }
@@ -193,9 +275,15 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
         <button v-if="!props.embedded" class="ai-icon-btn" @click="showSummaryPanel = !showSummaryPanel" :class="{ active: showSummaryPanel }" :title="showSummaryPanel ? t('ai.hidePanel') : t('ai.panel')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
         </button>
-        <button class="ai-icon-btn" @click="downloadExport('md')" :title="t('ai.export')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
+        <div style="position:relative;">
+          <button class="ai-icon-btn" @click="showExportMenu = !showExportMenu" :title="t('ai.export')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <div v-if="showExportMenu" class="ai-ctx-menu" style="position:absolute;right:0;top:100%;z-index:100;" @click.stop>
+            <div class="ai-ctx-item" @click="downloadExport('md')">{{ t('ai.exportMd') || 'Export MD' }}</div>
+            <div class="ai-ctx-item" @click="downloadExport('html')">{{ t('ai.exportHtml') || 'Export HTML' }}</div>
+          </div>
+        </div>
         <button class="ai-icon-btn" @click="newChat" :title="t('ai.newChat')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         </button>
@@ -211,7 +299,7 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
     </div>
 
     <div v-if="showConvList" class="ai-conv-list">
-      <div class="ai-conv-item" v-for="conv in conversations" :key="conv.id" :class="{ active: conv.id === activeConvId }" @click="switchConv(conv.id)">
+      <div class="ai-conv-item" v-for="conv in conversations" :key="conv.id" :class="{ active: conv.id === activeConvId }" @click="switchConv(conv.id)" @contextmenu="onConvContextMenu($event, conv)">
         <span class="ai-conv-title">{{ conv.title }}</span>
         <span class="ai-conv-time">{{ new Date(conv.createdAt).toLocaleDateString() }}</span>
         <button class="ai-conv-del" @click.stop="deleteConversation(conv.id)">
@@ -220,6 +308,13 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
       </div>
       <div v-if="conversations.length === 0" class="ai-empty">{{ t('conv.empty') }}</div>
     </div>
+    <!-- Conversation context menu -->
+    <div v-if="convContextMenu" class="ai-ctx-menu" :style="{ position:'fixed', left: convContextMenu.x+'px', top: convContextMenu.y+'px', zIndex:200 }" @click.stop>
+      <div class="ai-ctx-item" @click="downloadExport('md', convContextMenu.id); closeConvContextMenu()">{{ t('ai.exportMd') || 'Export MD' }}</div>
+      <div class="ai-ctx-item" @click="downloadExport('html', convContextMenu.id); closeConvContextMenu()">{{ t('ai.exportHtml') || 'Export HTML' }}</div>
+      <div class="ai-ctx-item ai-ctx-danger" @click="deleteConversation(convContextMenu.id); closeConvContextMenu()">{{ t('ai.deleteConv') || 'Delete' }}</div>
+    </div>
+    <div v-if="convContextMenu || showExportMenu" style="position:fixed;inset:0;z-index:199;" @click="closeConvContextMenu(); showExportMenu=false"></div>
 
     <div v-else-if="showSettings" class="ai-settings">
       <div class="ai-settings-tabs">
@@ -512,6 +607,10 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
 .ai-summary-page-title { font-size: 14px; font-weight: 600; color: var(--color-text); margin-bottom: 2px; }
 .ai-summary-page-url { font-size: 10px; color: var(--color-text-muted); word-break: break-all; }
 .ai-summary-empty { padding: 20px 0; text-align: center; font-size: 12px; color: var(--color-text-muted); }
-</style>
 
+/* Context menu */
+.ai-ctx-menu { background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 8px; padding: 4px; box-shadow: var(--color-shadow) 0 4px 16px; min-width: 140px; }
+.ai-ctx-item { padding: 6px 12px; font-size: 12px; color: var(--color-text); cursor: pointer; border-radius: 5px; }
+.ai-ctx-item:hover { background: var(--color-bg-hover); }
+.ai-ctx-danger { color: var(--color-error); }</style>
 

@@ -40,6 +40,14 @@ async function ensureDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_steps_task ON steps(task_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE TABLE IF NOT EXISTS memories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      content TEXT NOT NULL,
+      tags TEXT DEFAULT '',
+      source_conv_id TEXT DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
   `)
   console.log('[AgentMemory] DB ready at', dbPath)
   return db
@@ -90,6 +98,35 @@ function deleteTask(taskId) {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId)
 }
 
+function addMemory(content, tags, sourceConvId) {
+  if (!db) return null
+  const now = Date.now()
+  // Enforce max 100 memories - delete oldest
+  const count = db.prepare('SELECT COUNT(*) as cnt FROM memories').get()
+  if (count && count.cnt >= 100) {
+    db.prepare('DELETE FROM memories WHERE id IN (SELECT id FROM memories ORDER BY created_at ASC LIMIT ?)').run(count.cnt - 99)
+  }
+  const result = db.prepare('INSERT INTO memories (content, tags, source_conv_id, created_at) VALUES (?, ?, ?, ?)').run(content, tags || '', sourceConvId || '', now)
+  return { id: result.lastInsertRowid, content, tags, source_conv_id: sourceConvId, created_at: now }
+}
+
+function listMemories(limit) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM memories ORDER BY created_at DESC LIMIT ?').all(limit || 100)
+}
+
+function deleteMemory(id) {
+  if (!db) return false
+  db.prepare('DELETE FROM memories WHERE id = ?').run(id)
+  return true
+}
+
+function clearMemories() {
+  if (!db) return false
+  db.prepare('DELETE FROM memories').run()
+  return true
+}
+
 function closeDb() {
   if (db) { try { db.close() } catch {} db = null }
 }
@@ -127,6 +164,24 @@ function registerAgentMemoryIpc() {
     deleteTask(taskId)
     return { success: true }
   })
+
+  ipcMain.handle('agent-memory:add-memory', async (_event, content, tags, sourceConvId) => {
+    return addMemory(content, tags, sourceConvId)
+  })
+
+  ipcMain.handle('agent-memory:list-memories', async (_event, limit) => {
+    return listMemories(limit)
+  })
+
+  ipcMain.handle('agent-memory:delete-memory', async (_event, id) => {
+    deleteMemory(id)
+    return { success: true }
+  })
+
+  ipcMain.handle('agent-memory:clear-memories', async () => {
+    clearMemories()
+    return { success: true }
+  })
 }
 
-module.exports = { ensureDb, createTask, addStep, updateTaskStatus, getTask, getTaskSteps, listTasks, deleteTask, closeDb, registerAgentMemoryIpc }
+module.exports = { ensureDb, createTask, addStep, updateTaskStatus, getTask, getTaskSteps, listTasks, deleteTask, addMemory, listMemories, deleteMemory, clearMemories, closeDb, registerAgentMemoryIpc }

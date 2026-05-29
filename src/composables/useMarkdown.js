@@ -18,12 +18,19 @@ export function renderMarkdown(text) {
   const codeBlocks = []
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
     const idx = codeBlocks.length
+    // Mermaid diagrams - preserve raw text for mermaid engine
+    if (lang && lang.toLowerCase() === 'mermaid') {
+      const escapedCode = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      codeBlocks.push(`<div class="mk-mermaid" data-mermaid="true">${escapedCode}</div>`)
+      return `%%CODEBLOCK_${idx}%%`
+    }
     const langLabel = lang ? `<span class="mk-code-lang">${lang}</span>` : ''
     const escapedCode = code
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-    codeBlocks.push(`<div class="mk-code-block">${langLabel}<pre><code>${escapedCode}</code></pre><button class="mk-copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent)">Copy</button></div>`)
+    const dataLang = lang ? ` data-lang="${lang}"` : ''
+    codeBlocks.push(`<div class="mk-code-block">${langLabel}<pre><code${dataLang} class="hljs">${escapedCode}</code></pre><button class="mk-copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent)">Copy</button></div>`)
     return `%%CODEBLOCK_${idx}%%`
   })
 

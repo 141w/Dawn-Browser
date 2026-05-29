@@ -1,10 +1,11 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useAiConfig } from './composables/useAiConfig'
 import { useToolSystem } from './composables/useToolSystem'
 import { useSkillSystem } from './composables/useSkillSystem'
 import { t } from './composables/useI18n'
 import { useHistory } from './composables/useHistory'
+import { useAgentMemory } from './composables/useAgentMemory'
 import BookmarkManager from './BookmarkManager.vue'
 
 defineProps({ embedded: { type: Boolean, default: false } })
@@ -12,7 +13,16 @@ defineProps({ embedded: { type: Boolean, default: false } })
 const { config, providers, getProvider, getApiFormat, getEffectiveBaseUrl, getEffectiveModel } = useAiConfig()
 const { getRegisteredTools, getPermission, setPermission, resolvePermission, syncMcpTools } = useToolSystem()
 const { allSkillsWithStatus, toggleSkill, addCustomSkill, deleteCustomSkill, updateCustomSkill, isCustomSkill, loadSkills, refreshSkills } = useSkillSystem()
+const { memories, loadMemories, addMemory, deleteMemory, clearMemories } = useAgentMemory()
 const activeTab = ref('general')
+
+function handleAddMemory() {
+  const c = newMemoryContent.value.trim()
+  if (c) { addMemory(c); newMemoryContent.value = '' }
+}
+function handleClearMemories() {
+  if (confirm('Clear all memories?')) clearMemories()
+}
 
 const newSkillName = ref('')
 const newSkillDesc = ref('')
@@ -82,6 +92,7 @@ function handleOpenFolder(name) {
 
 // Custom model management
 const newCustomModel = ref('')
+const newMemoryContent = ref('')
 
 const customModels = computed(() => {
   const saved = config.value.customModels
@@ -508,6 +519,24 @@ onMounted(applyAppearance)
             <button class="bs-mcp-btn" @click="clearBrowsingData('downloads')">{{ t('bs.clearDownloads') }}</button>
             <button class="bs-mcp-btn bs-mcp-btn-danger" @click="clearBrowsingData('all')">{{ t('bs.clearAll') }}</button>
           </div>
+        </div>
+        <!-- AI Memory Management -->
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
+          <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('memory.title') || 'AI Memory' }}</div>
+          <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">{{ t('memory.desc') || 'Cross-conversation memories automatically extracted and injected into new chats' }}</div>
+          <div style="display:flex;gap:4px;margin-bottom:8px;">
+            <input class="bs-input" v-model="newMemoryContent" :placeholder="t('memory.addPlaceholder') || 'Add a memory...'" style="flex:1;" @keydown.enter="handleAddMemory()" />
+            <button class="bs-mcp-btn" @click="handleAddMemory()">{{ t('memory.add') || 'Add' }}</button>
+          </div>
+          <div style="max-height:200px;overflow-y:auto;">
+            <div v-for="mem in memories" :key="mem.id" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border-radius:4px;margin-bottom:4px;">
+              <span style="flex:1;font-size:12px;color:var(--color-text);">{{ mem.content }}</span>
+              <span v-if="mem.tags" style="font-size:10px;color:var(--color-text-muted);padding:1px 4px;background:var(--color-bg-active);border-radius:3px;">{{ mem.tags }}</span>
+              <button style="background:none;border:none;color:var(--color-text-muted);cursor:pointer;font-size:14px;" @click="deleteMemory(mem.id)">&times;</button>
+            </div>
+            <div v-if="memories.length === 0" style="font-size:12px;color:var(--color-text-muted);padding:12px;text-align:center;">{{ t('memory.empty') || 'No memories yet. They are extracted automatically from conversations.' }}</div>
+          </div>
+          <button v-if="memories.length > 0" class="bs-mcp-btn bs-mcp-btn-danger" style="margin-top:8px;" @click="handleClearMemories()">{{ t('memory.clearAll') || 'Clear All' }}</button>
         </div>
       </div>
 

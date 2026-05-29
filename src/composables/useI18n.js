@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+﻿import { ref, computed, watch } from 'vue'
 import { useAiConfig } from './useAiConfig'
 
 const { config } = useAiConfig()
@@ -23,6 +23,15 @@ const messages = {
     'ai.newChat': '新建对话',
     'ai.settings': '设置',
     'ai.export': '导出',
+    'ai.exportMd': '导出 Markdown',
+    'ai.exportHtml': '导出 HTML',
+    'ai.deleteConv': '删除对话',
+    'memory.title': 'AI 记忆',
+    'memory.desc': '自动从对话中提取并注入到新对话',
+    'memory.add': '添加',
+    'memory.addPlaceholder': '添加记忆...',
+    'memory.empty': '暂无记忆，将从对话中自动提取',
+    'memory.clearAll': '清除全部',
     'ai.panel': '面板',
     'ai.hidePanel': '隐藏面板',
     'ai.placeholder': '输入消息... (输入 / 使用命令)',
@@ -320,6 +329,15 @@ const messages = {
     'ai.newChat': 'New chat',
     'ai.settings': 'Settings',
     'ai.export': 'Export',
+    'ai.exportMd': 'Export Markdown',
+    'ai.exportHtml': 'Export HTML',
+    'ai.deleteConv': 'Delete',
+    'memory.title': 'AI Memory',
+    'memory.desc': 'Cross-conversation memories automatically extracted and injected into new chats',
+    'memory.add': 'Add',
+    'memory.addPlaceholder': 'Add a memory...',
+    'memory.empty': 'No memories yet. They are extracted automatically from conversations.',
+    'memory.clearAll': 'Clear All',
     'ai.panel': 'Panel',
     'ai.hidePanel': 'Hide panel',
     'ai.placeholder': 'Message Dawn... (type / for commands)',

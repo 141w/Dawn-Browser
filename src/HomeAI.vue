@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, nextTick, watch } from 'vue'
 import ChatInput from './ChatInput.vue'
 import { useAiChat } from './composables/useAiChat'
@@ -7,6 +7,47 @@ import { renderMarkdown } from './composables/useMarkdown'
 import { formatError } from './composables/useErrorFormat'
 import { t } from './composables/useI18n'
 
+import hljs from 'highlight.js/lib/core'
+import python from 'highlight.js/lib/languages/python'
+import javascript from 'highlight.js/lib/languages/javascript'
+import css from 'highlight.js/lib/languages/css'
+import json from 'highlight.js/lib/languages/json'
+import bash from 'highlight.js/lib/languages/bash'
+import xml from 'highlight.js/lib/languages/xml'
+import sql from 'highlight.js/lib/languages/sql'
+import java from 'highlight.js/lib/languages/java'
+import cpp from 'highlight.js/lib/languages/cpp'
+import go from 'highlight.js/lib/languages/go'
+import rust from 'highlight.js/lib/languages/rust'
+import typescript from 'highlight.js/lib/languages/typescript'
+import yaml from 'highlight.js/lib/languages/yaml'
+import markdown from 'highlight.js/lib/languages/markdown'
+import mermaid from 'mermaid'
+
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('ts', typescript)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('sh', bash)
+hljs.registerLanguage('shell', bash)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('java', java)
+hljs.registerLanguage('cpp', cpp)
+hljs.registerLanguage('c', cpp)
+hljs.registerLanguage('go', go)
+hljs.registerLanguage('rust', rust)
+hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('yml', yaml)
+hljs.registerLanguage('markdown', markdown)
+hljs.registerLanguage('md', markdown)
+
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
 const {
   conversations, activeConvId, isStreaming, streamError, agentState, pendingToolCalls,
   toolConfirmRequired, agentMode,
@@ -28,10 +69,38 @@ if (!activeConvId.value && conversations.value.length > 0) {
 const hasMessages = computed(() => activeConv.value && activeConv.value.messages.length > 0)
 
 function scrollToBottom() { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }
-watch(() => activeConv.value?.messages?.length, () => nextTick(scrollToBottom))
+watch(() => activeConv.value?.messages?.length, () => { nextTick(scrollToBottom); renderMultimodal() })
+
+/* ── Multimodal rendering ── */
+async function renderMultimodal() {
+  await nextTick()
+  if (!messagesEl.value) return
+  // Syntax highlighting for code blocks
+  messagesEl.value.querySelectorAll('pre code:not(.hljs)').forEach(el => {
+    try { hljs.highlightElement(el) } catch(e) {}
+  })
+  // Mermaid diagrams
+  const mermaidEls = messagesEl.value.querySelectorAll('.mk-mermaid:not([data-processed])')
+  if (mermaidEls.length > 0) {
+    try {
+      await mermaid.run({ nodes: mermaidEls })
+      mermaidEls.forEach(el => el.setAttribute('data-processed', 'true'))
+    } catch(e) {
+      mermaidEls.forEach(el => {
+        if (!el.getAttribute('data-processed')) {
+          el.setAttribute('data-processed', 'true')
+          const pre = document.createElement('pre')
+          pre.className = 'mk-code-block'
+          pre.textContent = el.textContent
+          el.replaceWith(pre)
+        }
+      })
+    }
+  }
+}
 
 function newChat() { createConversation(); showConvList.value = false }
-function switchConv(id) { activeConvId.value = id; showConvList.value = false }
+function switchConv(id) { activeConvId.value = id; showConvList.value = false; nextTick(renderMultimodal) }
 
 function handleSend(finalMsg, slashCmd, displayMsg) {
   try {
@@ -304,6 +373,3 @@ function handleSend(finalMsg, slashCmd, displayMsg) {
 /* Input bottom */
 .ha-input-bottom { flex-shrink: 0; padding: 12px 16px 16px; }
 </style>
-
-
-
