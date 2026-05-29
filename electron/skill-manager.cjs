@@ -61,17 +61,52 @@ function parseFrontmatter(content) {
   if (end === -1) return {}
   const block = trimmed.slice(3, end).trim()
   const result = {}
+  let currentKey = null
+  let currentIndent = 0
+  let collecting = false
+  let collected = ''
+
   for (const line of block.split('\n')) {
-    const colonIdx = line.indexOf(':')
-    if (colonIdx > 0) {
-      const key = line.slice(0, colonIdx).trim()
-      let value = line.slice(colonIdx + 1).trim()
+    const indent = line.search(/\S/)
+    if (indent === -1) {
+      if (collecting) collected += '\n'
+      continue
+    }
+    const trimmedLine = line.trim()
+    const colonIdx = trimmedLine.indexOf(':')
+    if (colonIdx > 0 && !collecting) {
+      const key = trimmedLine.slice(0, colonIdx).trim()
+      let value = trimmedLine.slice(colonIdx + 1).trim()
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1)
       }
-      result[key] = value
+      if (value === '' || value === '|' || value === '>') {
+        currentKey = key
+        currentIndent = indent
+        collecting = true
+        collected = ''
+      } else {
+        result[key] = value
+      }
+    } else if (collecting && indent > currentIndent) {
+      collected += (collected ? '\n' : '') + trimmedLine
+    } else if (collecting) {
+      result[currentKey] = collected
+      collecting = false
+      collected = ''
+      currentKey = null
+      const ci = trimmedLine.indexOf(':')
+      if (ci > 0) {
+        const k = trimmedLine.slice(0, ci).trim()
+        let v = trimmedLine.slice(ci + 1).trim()
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+          v = v.slice(1, -1)
+        }
+        result[k] = v
+      }
     }
   }
+  if (collecting) result[currentKey] = collected
   return result
 }
 
