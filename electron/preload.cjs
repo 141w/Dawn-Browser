@@ -38,7 +38,8 @@ const validChannels = new Set([
   'store:changed',
   'mcp:status-changed',
   'scheduler:task-updated',
-  'scheduler:execute'
+  'scheduler:execute',
+  'context-ai-action'
 ]);
 
 const subscriptions = new Map();

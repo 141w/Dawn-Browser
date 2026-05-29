@@ -15,7 +15,7 @@ import { useHistory } from "./composables/useHistory";
 import { resolveUrl } from "./composables/useSearchEngine";
 import { storeApi } from "./composables/useStore";
 const { userTips, addTip, deleteTip } = useTips();
-const { createConversation } = useAiChat();
+const { createConversation, sendMessage } = useAiChat();
 const { addBookmark, isBookmarked } = useBookmarks();
 const { addEntry: addHistoryEntry } = useHistory();
 const { tabSidebarOpen, tabGroups, toggleSidebar, aiGroupTabs } = useTabGroups();
@@ -393,6 +393,31 @@ function onResizeStart(e) {
   document.addEventListener('mouseup', onUp);
 }
 
+
+// ── Context menu AI action handler ──
+function handleContextAiAction(data) {
+  const { action, text, pageUrl } = data
+  if (!text) return
+  // Ensure AI sidebar is visible
+  if (!aiSidebarVisible.value) {
+    aiSidebarVisible.value = true
+    showAi.value = true
+    window.electronAPI?.showAiFloat()
+  }
+  // Create a new conversation for the action
+  nextTick(() => {
+    createConversation()
+    nextTick(() => {
+      const truncated = text.length > 2000 ? text.substring(0, 2000) + '...' : text
+      let prompt = ''
+      if (action === 'translate') prompt = `请将以下文字翻译为中文：\n\n${truncated}`
+      else if (action === 'explain') prompt = `请解释以下内容的含义：\n\n${truncated}`
+      else if (action === 'summarize') prompt = `请用简洁的语言总结以下内容：\n\n${truncated}`
+      else prompt = truncated
+      sendMessage(prompt)
+    })
+  })
+}
 /* ── Event listeners ── */
 const eventHandlers = {
   "did-navigate": handleDidNavigate, "did-navigate-in-page": handleDidNavigateInPage,
@@ -408,6 +433,7 @@ const eventHandlers = {
   "history-entry": addHistoryEntry, "toggle-history": () => { togglePanel('history') },
   "favicon-updated": (fav) => { if (fav) tabFavicons.value[activeTabId.value] = fav },
   "panel-action": handlePanelAction,
+  "context-ai-action": handleContextAiAction,
 };
 
 function setupListeners() {

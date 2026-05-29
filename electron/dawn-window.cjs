@@ -1,4 +1,4 @@
-﻿const { BrowserWindow, WebContentsView, Menu, net } = require('electron')
+const { BrowserWindow, WebContentsView, Menu, shell, net } = require('electron')
 const path = require('path')
 const AgentSandbox = require('./agent-sandbox.cjs')
 
@@ -314,24 +314,87 @@ class DawnWindow {
       }
     })
 
-    const pageMenu = Menu.buildFromTemplate([
-      { label: '后退', click: () => { if (view.webContents.canGoBack()) view.webContents.goBack() }, enabled: false },
-      { label: '前进', click: () => { if (view.webContents.canGoForward()) view.webContents.goForward() } },
-      { label: '刷新', click: () => view.webContents.reload() },
-      { type: 'separator' },
-      { label: '在新窗口打开', click: () => {
-        const currentUrl = view.webContents.getURL()
-        if (!currentUrl || currentUrl.startsWith('dawn://') || currentUrl.startsWith('file://')) return
-        if (self._onNewWindow) self._onNewWindow(currentUrl)
-      }},
-      { type: 'separator' },
-      { label: '复制', role: 'copy' },
-      { label: '全选', role: 'selectAll' }
-    ])
-    view.webContents.on('context-menu', () => {
-      pageMenu.items[0].enabled = view.webContents.canGoBack()
-      pageMenu.items[1].enabled = view.webContents.canGoForward()
-      pageMenu.popup({ window: self.win })
+    // Context-aware right-click menu
+    function buildContextMenu(params) {
+      const template = []
+      const canBack = view.webContents.canGoBack()
+      const canForward = view.webContents.canGoForward()
+      const currentUrl = view.webContents.getURL() || ""
+      const isDawnPage = currentUrl.startsWith("dawn://") || currentUrl.startsWith("file://")
+
+      // Navigation
+      template.push({ label: "后退", click: () => { if (canBack) view.webContents.goBack() }, enabled: canBack })
+      template.push({ label: "前进", click: () => { if (canForward) view.webContents.goForward() }, enabled: canForward })
+      template.push({ label: "刷新", click: () => view.webContents.reload() })
+      template.push({ type: "separator" })
+
+      // Selected text context
+      if (params.selectionText) {
+        const sel = params.selectionText.trim().substring(0, 80)
+        const displaySel = sel.length < params.selectionText.trim().length ? sel + "…" : sel
+        template.push({ label: `搜索「${displaySel}」`, click: () => {
+          const q = encodeURIComponent(params.selectionText.trim())
+          view.webContents.loadURL(`https://www.baidu.com/s?wd=${q}`)
+        }})
+        template.push({ label: "复制", role: "copy" })
+        template.push({ type: "separator" })
+        template.push({ label: "🤖 AI 翻译", click: () => {
+          self.win.webContents.send("context-ai-action", { action: "translate", text: params.selectionText, pageUrl: currentUrl })
+        }})
+        template.push({ label: "🤖 AI 解释", click: () => {
+          self.win.webContents.send("context-ai-action", { action: "explain", text: params.selectionText, pageUrl: currentUrl })
+        }})
+        template.push({ label: "🤖 AI 总结", click: () => {
+          self.win.webContents.send("context-ai-action", { action: "summarize", text: params.selectionText, pageUrl: currentUrl })
+        }})
+      }
+      // Link context
+      else if (params.linkURL) {
+        template.push({ label: "在新标签页打开链接", click: () => { self.addTab(params.linkURL, true) }})
+        template.push({ label: "复制链接地址", click: () => {
+          require("electron").clipboard.writeText(params.linkURL)
+        }})
+        template.push({ type: "separator" })
+        template.push({ label: "复制", role: "copy" })
+        template.push({ label: "全选", role: "selectAll" })
+      }
+      // Image context
+      else if (params.mediaType === "image" && params.srcURL) {
+        template.push({ label: "在新标签页打开图片", click: () => { self.addTab(params.srcURL, true) }})
+        template.push({ label: "保存图片", click: () => {
+          view.webContents.downloadURL(params.srcURL)
+        }})
+        template.push({ label: "复制图片地址", click: () => {
+          require("electron").clipboard.writeText(params.srcURL)
+        }})
+        template.push({ type: "separator" })
+        template.push({ label: "复制", role: "copy" })
+        template.push({ label: "全选", role: "selectAll" })
+      }
+      // Default / empty area context
+      else {
+        if (!isDawnPage) {
+          template.push({ label: "查看页面源代码", click: () => {
+            view.webContents.loadURL("view-source:" + currentUrl)
+          }})
+          template.push({ label: "打印页面", click: () => {
+            view.webContents.print()
+          }})
+          template.push({ label: "在新窗口打开", click: () => {
+            if (self._onNewWindow) self._onNewWindow(currentUrl)
+          }})
+          template.push({ type: "separator" })
+        }
+        template.push({ label: "复制", role: "copy" })
+        template.push({ label: "全选", role: "selectAll" })
+      }
+
+      return Menu.buildFromTemplate(template)
+    }
+
+    view.webContents.on("context-menu", (event, params) => {
+      const menu = buildContextMenu(params)
+      menu.popup({ window: self.win })
     })
 
     const loadUrl = isNewTabUrl(url) ? getNewTabUrl() : isSettingsUrl(url) ? getSettingsUrl() : url
