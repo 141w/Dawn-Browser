@@ -405,7 +405,7 @@ onMounted(applyAppearance)
         <!-- Context Menu AI Actions -->
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
           <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('bs.ctxMenuTitle') || '右键菜单 AI 功能' }}</div>
-          <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">{{ t('bs.ctxMenuDesc') || '自定义网页右键菜单中的 AI 功能，使用 {{text}} 作为选中文字的占位符' }}</div>
+          <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">{{ t('bs.ctxMenuDesc') || '自定义网页右键菜单中的 AI 功能，使用 {占位符} 作为选中文字的占位符' }}</div>
 
           <div v-for="action in getContextActions()" :key="action.id" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--color-bg-hover);border-radius:6px;margin-bottom:6px;">
             <button style="background:none;border:none;cursor:pointer;color:var(--color-text-muted);font-size:12px;" @click="toggleCtxAction(action.id)" :title="action.enabled ? '已启用' : '已禁用'">
@@ -427,7 +427,7 @@ onMounted(applyAppearance)
               <input class="bs-input" v-model="ctxNewName" placeholder="功能名称（如：AI 改写）" style="font-size:12px;" />
             </div>
             <div class="bs-field" style="margin-bottom:6px;">
-              <textarea class="bs-input" v-model="ctxNewPrompt" placeholder="Prompt 模板，用 {{text}} 代替选中文字" rows="2" style="font-size:12px;resize:vertical;"></textarea>
+              <textarea class="bs-input" v-model="ctxNewPrompt" placeholder="Prompt 模板，用 {text} 代替选中文字" rows="2" style="font-size:12px;resize:vertical;"></textarea>
             </div>
             <button class="bs-mcp-btn" @click="addCtxAction" :disabled="!ctxNewName.trim() || !ctxNewPrompt.trim()">添加</button>
           </div>
