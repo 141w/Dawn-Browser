@@ -396,8 +396,8 @@ function onResizeStart(e) {
 
 // ── Context menu AI action handler ──
 function handleContextAiAction(data) {
-  const { action, text, pageUrl } = data
-  if (!text) return
+  const { action, text, prompt, pageUrl } = data
+  if (!text && !prompt) return
   // Ensure AI sidebar is visible
   if (!aiSidebarVisible.value) {
     aiSidebarVisible.value = true
@@ -408,13 +408,9 @@ function handleContextAiAction(data) {
   nextTick(() => {
     createConversation()
     nextTick(() => {
-      const truncated = text.length > 2000 ? text.substring(0, 2000) + '...' : text
-      let prompt = ''
-      if (action === 'translate') prompt = `请将以下文字翻译为中文：\n\n${truncated}`
-      else if (action === 'explain') prompt = `请解释以下内容的含义：\n\n${truncated}`
-      else if (action === 'summarize') prompt = `请用简洁的语言总结以下内容：\n\n${truncated}`
-      else prompt = truncated
-      sendMessage(prompt)
+      // Use the prompt from the main process (already has {{text}} replaced)
+      const finalPrompt = prompt || text || ''
+      sendMessage(finalPrompt)
     })
   })
 }

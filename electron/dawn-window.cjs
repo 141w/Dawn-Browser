@@ -338,15 +338,23 @@ class DawnWindow {
         }})
         template.push({ label: "复制", role: "copy" })
         template.push({ type: "separator" })
-        template.push({ label: "AI 翻译", click: () => {
-          self.win.webContents.send("context-ai-action", { action: "translate", text: params.selectionText, pageUrl: currentUrl })
-        }})
-        template.push({ label: "AI 解释", click: () => {
-          self.win.webContents.send("context-ai-action", { action: "explain", text: params.selectionText, pageUrl: currentUrl })
-        }})
-        template.push({ label: "AI 总结", click: () => {
-          self.win.webContents.send("context-ai-action", { action: "summarize", text: params.selectionText, pageUrl: currentUrl })
-        }})
+        // Load custom AI actions from store
+        let ctxActions = []
+        try { ctxActions = global.__dawnStore?.get('contextMenuActions') || [] } catch {}
+        if (!ctxActions.length) {
+          ctxActions = [
+            { id: 'translate', name: 'AI 翻译', prompt: '请将以下文字翻译为中文：\n\n{{text}}', enabled: true },
+            { id: 'explain', name: 'AI 解释', prompt: '请解释以下内容的含义：\n\n{{text}}', enabled: true },
+            { id: 'summarize', name: 'AI 总结', prompt: '请用简洁的语言总结以下内容：\n\n{{text}}', enabled: true }
+          ]
+        }
+        for (const action of ctxActions) {
+          if (!action.enabled) continue
+          const actionPrompt = action.prompt.replace(/\{\{text\}\}/g, params.selectionText)
+          template.push({ label: action.name, click: () => {
+            self.win.webContents.send("context-ai-action", { action: action.id, prompt: actionPrompt, text: params.selectionText, pageUrl: currentUrl })
+          }})
+        }
       }
       // Link context
       else if (params.linkURL) {

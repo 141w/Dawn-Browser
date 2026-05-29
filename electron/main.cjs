@@ -1,4 +1,4 @@
-﻿const { app, ipcMain, BrowserWindow, dialog, shell, safeStorage, net } = require('electron')
+const { app, ipcMain, BrowserWindow, dialog, shell, safeStorage, net } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
@@ -9,6 +9,7 @@ const {
 } = require('./dawn-window.cjs')
 
 const { dawnStore } = require('./dawn-store.cjs')
+global.__dawnStore = dawnStore
 const { registerMcpIpc } = require('./mcp-manager.cjs')
 const { registerScriptRunnerIpc } = require('./script-runner.cjs')
 const { registerAgentMemoryIpc, closeDb } = require('./agent-memory.cjs')

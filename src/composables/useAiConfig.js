@@ -103,7 +103,12 @@ function loadConfig() {
     newTabUrl: '',
     searchEngine: 'baidu',
     downloadPath: '',
-    clearOnExit: false
+    clearOnExit: false,
+    contextMenuActions: [
+      { id: 'translate', name: 'AI 翻译', prompt: '请将以下文字翻译为中文：\n\n{{text}}', enabled: true },
+      { id: 'explain', name: 'AI 解释', prompt: '请解释以下内容的含义：\n\n{{text}}', enabled: true },
+      { id: 'summarize', name: 'AI 总结', prompt: '请用简洁的语言总结以下内容：\n\n{{text}}', enabled: true }
+    ]
   }
   config.value = saved ? { ...defaults, ...JSON.parse(saved) } : defaults
   return config
@@ -112,6 +117,10 @@ function loadConfig() {
 function saveConfig() {
   if (!config.value) return
   localStorage.setItem('dawn-ai-config', JSON.stringify(config.value))
+  // Sync context menu actions to main process store
+  if (config.value.contextMenuActions) {
+    try { window.electronAPI?.storeSet?.('contextMenuActions', config.value.contextMenuActions) } catch {}
+  }
 }
 
 function getProvider() {

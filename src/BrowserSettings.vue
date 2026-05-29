@@ -103,6 +103,45 @@ function addCustomModel() {
   newCustomModel.value = ''
 }
 
+// Context menu AI actions management
+const ctxEditing = ref(null)
+const ctxNewName = ref('')
+const ctxNewPrompt = ref('')
+
+function getContextActions() {
+  return config.value.contextMenuActions || []
+}
+function addCtxAction() {
+  if (!ctxNewName.value.trim() || !ctxNewPrompt.value.trim()) return
+  if (!config.value.contextMenuActions) config.value.contextMenuActions = []
+  config.value.contextMenuActions.push({
+    id: 'custom_' + Date.now(),
+    name: ctxNewName.value.trim(),
+    prompt: ctxNewPrompt.value.trim(),
+    enabled: true
+  })
+  ctxNewName.value = ''
+  ctxNewPrompt.value = ''
+}
+function removeCtxAction(id) {
+  config.value.contextMenuActions = (config.value.contextMenuActions || []).filter(a => a.id !== id)
+}
+function toggleCtxAction(id) {
+  const action = (config.value.contextMenuActions || []).find(a => a.id === id)
+  if (action) action.enabled = !action.enabled
+}
+function moveCtxAction(id, dir) {
+  const actions = config.value.contextMenuActions || []
+  const idx = actions.findIndex(a => a.id === id)
+  if (idx < 0) return
+  const newIdx = idx + dir
+  if (newIdx < 0 || newIdx >= actions.length) return
+  const tmp = actions[idx]
+  actions[idx] = actions[newIdx]
+  actions[newIdx] = tmp
+  config.value.contextMenuActions = [...actions]
+}
+
 function removeCustomModel(m) {
   if (!config.value.customModels) return
   config.value.customModels = config.value.customModels.filter(x => x !== m)
@@ -362,6 +401,37 @@ onMounted(applyAppearance)
           </div>
         </div>
       </div>
+
+        <!-- Context Menu AI Actions -->
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
+          <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('bs.ctxMenuTitle') || '右键菜单 AI 功能' }}</div>
+          <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">{{ t('bs.ctxMenuDesc') || '自定义网页右键菜单中的 AI 功能，使用 {{text}} 作为选中文字的占位符' }}</div>
+
+          <div v-for="action in getContextActions()" :key="action.id" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--color-bg-hover);border-radius:6px;margin-bottom:6px;">
+            <button style="background:none;border:none;cursor:pointer;color:var(--color-text-muted);font-size:12px;" @click="toggleCtxAction(action.id)" :title="action.enabled ? '已启用' : '已禁用'">
+              {{ action.enabled ? '✅' : '⬜' }}
+            </button>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:500;color:var(--color-text);">{{ action.name }}</div>
+              <div style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ action.prompt.substring(0, 60) }}{{ action.prompt.length > 60 ? '...' : '' }}</div>
+            </div>
+            <div style="display:flex;gap:2px;flex-shrink:0;">
+              <button class="bs-mcp-btn" style="padding:2px 6px;font-size:10px;" @click="moveCtxAction(action.id, -1)" :disabled="getContextActions().indexOf(action) === 0">↑</button>
+              <button class="bs-mcp-btn" style="padding:2px 6px;font-size:10px;" @click="moveCtxAction(action.id, 1)" :disabled="getContextActions().indexOf(action) === getContextActions().length - 1">↓</button>
+              <button class="bs-mcp-btn bs-mcp-btn-danger" style="padding:2px 6px;font-size:10px;" @click="removeCtxAction(action.id)">×</button>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;padding:10px;background:var(--color-bg-hover);border-radius:6px;border:1px dashed var(--color-border);">
+            <div class="bs-field" style="margin-bottom:6px;">
+              <input class="bs-input" v-model="ctxNewName" placeholder="功能名称（如：AI 改写）" style="font-size:12px;" />
+            </div>
+            <div class="bs-field" style="margin-bottom:6px;">
+              <textarea class="bs-input" v-model="ctxNewPrompt" placeholder="Prompt 模板，用 {{text}} 代替选中文字" rows="2" style="font-size:12px;resize:vertical;"></textarea>
+            </div>
+            <button class="bs-mcp-btn" @click="addCtxAction" :disabled="!ctxNewName.trim() || !ctxNewPrompt.trim()">添加</button>
+          </div>
+        </div>
 
       <!-- MCP Tab -->
       <div v-if="activeTab === 'mcp'" class="bs-section">
