@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { resolve } from "path";
 
-export default defineConfig({
-  base: './',
+export default defineConfig(({ command }) => ({
+  base: command === 'serve' ? '/' : './',
   plugins: [vue()],
   server: {
     port: 1420,
@@ -20,4 +20,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

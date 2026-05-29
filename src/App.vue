@@ -13,6 +13,7 @@ import { useAiConfig } from "./composables/useAiConfig";
 import { useBookmarks } from "./composables/useBookmarks";
 import { useHistory } from "./composables/useHistory";
 import { resolveUrl } from "./composables/useSearchEngine";
+import { storeApi } from "./composables/useStore";
 const { userTips, addTip, deleteTip } = useTips();
 const { createConversation } = useAiChat();
 const { addBookmark, isBookmarked } = useBookmarks();
@@ -22,7 +23,7 @@ const { setTabs: syncBrowserTabs, setActiveTab: syncActiveTab } = useBrowserTabs
 
 const tabs = ref([]);
 const activeTabId = ref(null);
-const tabFavicons = ref({}); // tabId → favicon data URL
+const tabFavicons = ref({}); // tabId �?favicon data URL
 
 function syncTabsToStore() {
   syncBrowserTabs(tabs.value)
@@ -52,8 +53,8 @@ function handlePanelAction(action) {
 }
 
 const viewingDoc = ref(null);
-const docDataMap = ref({});    // tabId → { fileName, ext, data, filePath }
-const docDataByUrl = ref({});  // url → { fileName, ext, data, filePath } (set before createTab)
+const docDataMap = ref({});    // tabId �?{ fileName, ext, data, filePath }
+const docDataByUrl = ref({});  // url �?{ fileName, ext, data, filePath } (set before createTab)
 const newTipForm = ref({ name: '', description: '', prompt: '' });
 
 const DOC_EXTENSIONS = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'txt', 'md', 'html', 'xml', 'json', 'js', 'ts', 'py', 'css'];
@@ -102,7 +103,7 @@ async function handleToggleSidebar() {
 async function navigate() {
   let url = resolveUrl(currentUrl.value)
   if (!url) return;
-  // Check if this is a document URL → view inline
+  // Check if this is a document URL �?view inline
   if (isDocUrl(url)) {
     await openDocUrl(url)
     return
@@ -128,7 +129,7 @@ function getDocDataByUrl(url) {
 async function addDocTab(docData) {
   const docId = `doc_${++_docIdCounter}`
   const url = `dawn://doc/${docId}`
-  // Store by URL before createTab — event handlers read this
+  // Store by URL before createTab �?event handlers read this
   docDataByUrl.value[url] = docData
   let actualTabId = null
   try {
@@ -182,6 +183,9 @@ function goForward() { window.electronAPI?.goForward(); }
 function reload() { window.electronAPI?.reload(); }
 function addNewTab(url) { window.electronAPI?.createTab(url || "dawn://newtab"); }
 function closeTab(id) { if (tabs.value.length > 1) window.electronAPI?.closeTab(id); }
+function winMinimize() { window.electronAPI?.windowMinimize(); }
+function winMaximize() { window.electronAPI?.windowMaximize(); }
+function winClose() { window.electronAPI?.windowClose(); }
 
 async function selectTab(id) {
   if (id === activeTabId.value) return;
@@ -437,6 +441,26 @@ onMounted(async () => {
 
 const { config } = useAiConfig()
 
+function applyTheme() {
+  if (!config.value) return
+  document.documentElement.setAttribute('data-theme', config.value.theme || 'light')
+  document.documentElement.style.fontSize = (config.value.fontSize || 14) + 'px'
+}
+watch(() => [config.value?.theme, config.value?.fontSize], applyTheme, { deep: true })
+// Listen for theme changes from other windows (e.g. settings page)
+storeApi.onStoreChange('__theme', (data) => {
+  if (data && data.theme) {
+    document.documentElement.setAttribute('data-theme', data.theme)
+    if (data.fontSize) document.documentElement.style.fontSize = data.fontSize + 'px'
+    // Also update local config so it stays in sync
+    if (config.value) {
+      config.value.theme = data.theme
+      if (data.fontSize) config.value.fontSize = data.fontSize
+    }
+  }
+})
+
+applyTheme()
 onBeforeUnmount(() => { removeListeners(); if (config.value?.clearOnExit) window.electronAPI?.clearOnExit() })
 </script>
 
@@ -445,13 +469,13 @@ onBeforeUnmount(() => { removeListeners(); if (config.value?.clearOnExit) window
     <header class="browser-header">
       <div class="titlebar">
         <div class="window-controls" :class="{ win: platform === 'win32', mac: platform === 'darwin' }">
-          <span class="control minimize" @mousedown.stop @click.stop="window.electronAPI?.windowMinimize()">
+          <span class="control minimize" @mousedown.stop @click.stop="winMinimize()">
             <svg v-if="platform==='win32'" width="10" height="10" viewBox="0 0 10 2"><rect width="10" height="2" rx="1" fill="currentColor"/></svg>
           </span>
-          <span class="control maximize" @mousedown.stop @click.stop="window.electronAPI?.windowMaximize()">
+          <span class="control maximize" @mousedown.stop @click.stop="winMaximize()">
             <svg v-if="platform==='win32'" width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
           </span>
-          <span class="control close" @mousedown.stop @click.stop="window.electronAPI?.windowClose()">
+          <span class="control close" @mousedown.stop @click.stop="winClose()">
             <svg v-if="platform==='win32'" width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </span>
         </div>
@@ -539,12 +563,14 @@ onBeforeUnmount(() => { removeListeners(); if (config.value?.clearOnExit) window
       </div>
 
       <!-- Tab sidebar (DOM-based, positioned in space NOT covered by BrowserView) -->
-      <TabSidebar
+      <TabSidebar v-show="tabSidebarOpen"
         :tabs="tabs"
         :activeTabId="activeTabId"
         @select-tab="selectTab"
         @close-tab="closeTab"
         @auto-group="handleAutoGroup"
+        @navigate='navigateToUrl'
+        @toggle-find='openFindBar'
       />
 
       <!-- Main area -->
@@ -577,16 +603,6 @@ onBeforeUnmount(() => { removeListeners(); if (config.value?.clearOnExit) window
 
 <style>
 :root {
-  --color-bg: #f7f4ed;
-  --color-surface: #f7f4ed;
-  --color-text: #1c1c1c;
-  --color-text-secondary: #5f5f5d;
-  --color-text-muted: #8a8a88;
-  --color-border-light: #eceae4;
-  --color-border-interactive: rgba(28, 28, 28, 0.4);
-  --font-family: "Camera Plain Variable", ui-sans-serif, system-ui, sans-serif;
-  --radius-sm: 6px;
-  --radius-full: 9999px;
   font-family: var(--font-family); font-size: 14px; line-height: 1.5;
   color: var(--color-text); background: var(--color-bg);
 }
@@ -615,9 +631,9 @@ body { background: var(--color-bg); overflow: hidden; }
 .window-controls.win { left: auto; right: 0; gap: 0; }
 .window-controls.win .control {
   width: 46px; height: 36px; border-radius: 0; background: transparent;
-  display: flex; align-items: center; justify-content: center; color: #8a8a88;
+  display: flex; align-items: center; justify-content: center; color: var(--color-text-muted);
 }
-.window-controls.win .control:hover { background: rgba(28,28,28,0.06); color: #1c1c1c; }
+.window-controls.win .control:hover { background: var(--color-bg-active); color: var(--color-text); }
 .window-controls.win .control.close:hover { background: #c42b1c; color: #fff; }
 .window-title { font-size: 13px; font-weight: 400; color: var(--color-text-secondary); }
 
@@ -631,9 +647,9 @@ body { background: var(--color-bg); overflow: hidden; }
   width: 28px; height: 28px; background: transparent; border: none;
   border-radius: var(--radius-sm); color: var(--color-text); cursor: pointer; transition: all 0.15s;
 }
-.nav-btn:hover:not(:disabled), .tool-btn:hover:not(:disabled) { background: rgba(28,28,28,0.06); }
+.nav-btn:hover:not(:disabled), .tool-btn:hover:not(:disabled) { background: var(--color-bg-active); }
 .nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.nav-btn.active, .tool-btn.active { background: rgba(28,28,28,0.08); color: var(--color-text); }
+.nav-btn.active, .tool-btn.active { background: var(--color-bg-active); color: var(--color-text); }
 .tool-btn:disabled { opacity: 0.25; cursor: not-allowed; }
 
 .address-bar {
@@ -641,7 +657,7 @@ body { background: var(--color-bg); overflow: hidden; }
   padding: 0 10px; height: 28px; background: var(--color-surface);
   border: 1px solid var(--color-border-light); border-radius: var(--radius-full); transition: all 0.15s;
 }
-.address-bar:focus-within { border-color: var(--color-border-interactive); box-shadow: rgba(0,0,0,0.1) 0px 4px 12px; }
+.address-bar:focus-within { border-color: var(--color-border-interactive); box-shadow: var(--color-shadow) 0px 4px 12px; }
 .lock-icon { color: var(--color-text-muted); flex-shrink: 0; }
 .address-bar input {
   flex: 1; background: transparent; border: none; outline: none;
@@ -651,17 +667,17 @@ body { background: var(--color-bg); overflow: hidden; }
 
 .tabbar {
   display: flex; align-items: flex-end; gap: 1px; padding: 2px 8px 0;
-  background: rgba(28,28,28,0.04); overflow-x: auto; flex-shrink: 0; min-height: 30px;
+  background: var(--color-bg-hover); overflow-x: auto; flex-shrink: 0; min-height: 30px;
 }
 .tabbar::-webkit-scrollbar { display: none; }
 .tab {
   display: flex; align-items: center; gap: 4px; padding: 3px 8px;
-  background: rgba(28,28,28,0.03); border: 1px solid transparent; border-bottom: none;
+  background: var(--color-bg-hover); border: 1px solid transparent; border-bottom: none;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0; font-size: 11px;
   color: var(--color-text-secondary); cursor: pointer; transition: all 0.15s;
   white-space: nowrap; max-width: 140px; height: 24px;
 }
-.tab:hover { background: rgba(28,28,28,0.06); }
+.tab:hover { background: var(--color-bg-active); }
 .tab.active { background: var(--color-bg); border-color: var(--color-border-light); color: var(--color-text); }
 .tab.dragging { opacity: 0.4; }
 .tab.drop-before { box-shadow: -2px 0 0 #2563eb; }
@@ -675,33 +691,33 @@ body { background: var(--color-bg); overflow: hidden; }
   opacity: 0; transition: all 0.15s; flex-shrink: 0;
 }
 .tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
-.tab-close:hover { background: rgba(28,28,28,0.1); color: var(--color-text); }
+.tab-close:hover { background: var(--color-bg-active); color: var(--color-text); }
 .new-tab-btn {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; background: transparent; border: none;
   border-radius: var(--radius-sm); color: var(--color-text-secondary); cursor: pointer; flex-shrink: 0;
 }
-.new-tab-btn:hover { background: rgba(28,28,28,0.06); color: var(--color-text); }
+.new-tab-btn:hover { background: var(--color-bg-active); color: var(--color-text); }
 
 /* ── Find bar ── */
 .find-bar {
   position: absolute; top: 0; right: 0; z-index: 300;
   display: flex; align-items: center; gap: 6px;
-  padding: 6px 12px; background: #fcfbf8; border: 1px solid #eceae4;
-  border-radius: 8px; box-shadow: rgba(0,0,0,0.1) 0 2px 12px;
+  padding: 6px 12px; background: var(--color-bg-elevated); border: 1px solid var(--color-border);
+  border-radius: 8px; box-shadow: var(--color-shadow) 0 2px 12px;
   margin: 6px;
 }
 .find-bar input {
   width: 180px; padding: 3px 8px; background: transparent; border: none; outline: none;
-  font-size: 13px; font-family: inherit; color: #1c1c1c;
+  font-size: 13px; font-family: inherit; color: var(--color-text);
 }
-.find-count { font-size: 11px; color: #8a8a88; min-width: 30px; text-align: center; }
+.find-count { font-size: 11px; color: var(--color-text-muted); min-width: 30px; text-align: center; }
 .find-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; background: transparent; border: 1px solid #eceae4;
-  border-radius: 4px; font-size: 10px; color: #5f5f5d; cursor: pointer;
+  width: 22px; height: 22px; background: transparent; border: 1px solid var(--color-border);
+  border-radius: 4px; font-size: 10px; color: var(--color-text-secondary); cursor: pointer;
 }
-.find-btn:hover { background: rgba(28,28,28,0.06); }
+.find-btn:hover { background: var(--color-bg-active); }
 .find-close { border: none; font-size: 14px; }
 
 /* ── Body ── */
@@ -715,12 +731,14 @@ body { background: var(--color-bg); overflow: hidden; }
   background: var(--color-bg);
 }
 
+@keyframes drawer-slide-left { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
 /* ── AI Drawer (browsing sidebar) ── */
 .ai-drawer {
   position: absolute; top: 0; right: 0; bottom: 0;
   background: var(--color-bg); border-left: 1px solid var(--color-border-light);
   z-index: 100; display: flex; flex-direction: column;
-  box-shadow: rgba(0,0,0,0.1) -2px 0px 20px;
+  box-shadow: var(--color-shadow) -2px 0px 20px;
   animation: drawer-slide-in 0.2s ease-out;
   transition: width 0.15s ease-out;
 }
@@ -729,7 +747,7 @@ body { background: var(--color-bg); overflow: hidden; }
 .ai-drawer-resize-handle {
   position: absolute; left: 0; top: 0; bottom: 0; width: 4px; cursor: col-resize; z-index: 10;
 }
-.ai-drawer-resize-handle:hover { background: rgba(28,28,28,0.15); }
+.ai-drawer-resize-handle:hover { background: var(--color-border-interactive); }
 
 /* ── Document Viewer (full main content) ── */
 .doc-viewer-full {
@@ -741,7 +759,7 @@ body { background: var(--color-bg); overflow: hidden; }
 .tips-panel {
   position: absolute; top: 0; right: 0; bottom: 0; width: 380px;
   background: var(--color-bg); border-left: 1px solid var(--color-border-light); z-index: 200;
-  display: flex; flex-direction: column; box-shadow: rgba(0,0,0,0.08) -2px 0px 16px;
+  display: flex; flex-direction: column; box-shadow: var(--color-shadow) -2px 0px 16px;
   animation: drawer-slide-in 0.15s ease-out;
 }
 .tips-panel-header {
@@ -752,19 +770,19 @@ body { background: var(--color-bg); overflow: hidden; }
 .tips-panel-close {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; background: transparent; border: none;
-  border-radius: 4px; font-size: 16px; color: #5f5f5d; cursor: pointer;
+  border-radius: 4px; font-size: 16px; color: var(--color-text-secondary); cursor: pointer;
 }
-.tips-panel-close:hover { background: rgba(28,28,28,0.06); }
+.tips-panel-close:hover { background: var(--color-bg-active); }
 .tips-panel-body { flex: 1; overflow-y: auto; padding: 12px; }
 .tips-new { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .tips-input, .tips-textarea {
-  padding: 7px 10px; background: #f7f4ed; border: 1px solid #eceae4;
-  border-radius: 6px; font-size: 12px; font-family: inherit; color: #1c1c1c; outline: none;
+  padding: 7px 10px; background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: 6px; font-size: 12px; font-family: inherit; color: var(--color-text); outline: none;
 }
-.tips-input:focus, .tips-textarea:focus { border-color: rgba(28,28,28,0.4); }
+.tips-input:focus, .tips-textarea:focus { border-color: var(--color-border-interactive); }
 .tips-textarea { resize: vertical; min-height: 60px; }
 .tips-save-btn {
-  padding: 6px 14px; background: #1c1c1c; color: #fcfbf8; border: none;
+  padding: 6px 14px; background: var(--color-text); color: var(--color-bg-elevated); border: none;
   border-radius: 6px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; align-self: flex-end;
 }
 .tips-save-btn:hover { opacity: 0.85; }
@@ -772,18 +790,18 @@ body { background: var(--color-bg); overflow: hidden; }
 .tips-list { display: flex; flex-direction: column; gap: 3px; }
 .tips-item {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 8px; background: rgba(28,28,28,0.02); border-radius: 6px; gap: 8px;
+  padding: 6px 8px; background: var(--color-bg-hover); border-radius: 6px; gap: 8px;
 }
 .tips-item-info { display: flex; flex-direction: column; min-width: 0; }
-.tips-item-name { font-family: monospace; font-size: 11px; font-weight: 600; color: #1c1c1c; }
-.tips-item-desc { font-size: 10px; color: #8a8a88; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tips-item-name { font-family: monospace; font-size: 11px; font-weight: 600; color: var(--color-text); }
+.tips-item-desc { font-size: 10px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tips-item-del {
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; background: transparent; border: none;
-  border-radius: 4px; color: #8a8a88; cursor: pointer; flex-shrink: 0;
+  border-radius: 4px; color: var(--color-text-muted); cursor: pointer; flex-shrink: 0;
 }
 .tips-item-del:hover { color: #c00; }
-.tips-empty { padding: 16px; text-align: center; font-size: 12px; color: #8a8a88; }
+.tips-empty { padding: 16px; text-align: center; font-size: 12px; color: var(--color-text-muted); }
 
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .spin { animation: spin 0.8s linear infinite; }

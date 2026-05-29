@@ -159,9 +159,9 @@ async function doImport() {
             <button class="po-btn sm" @click="saveEditBm">Save</button>
           </template>
           <template v-else>
-            <span class="po-row-title" @click="editingBm.title ? openUrl(bm.url) : null" style="cursor:pointer">{{ bm.title || 'Untitled' }}</span>
+            <span class="po-row-title" @click="bm.url ? openUrl(bm.url) : null" style="cursor:pointer">{{ bm.title || 'Untitled' }}</span>
             <span class="po-row-sub">{{ getHost(bm.url) }}</span>
-            <button class="po-row-del" @click.stop="startEditBm(bm)" title="Edit" style="opacity:1;color:#2563eb">✎</button>
+            <button class="po-row-del" @click.stop="startEditBm(bm)" title="Edit" style="opacity:1;color:var(--color-accent)">✎</button>
             <button class="po-row-del" @click.stop="removeBookmark(bm.id)">&times;</button>
           </template>
         </div>
@@ -192,35 +192,35 @@ async function doImport() {
 
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-.po-root { display:flex; flex-direction:column; height:100vh; background:#f7f4ed; font-size:12px; color:#1c1c1c; }
-.po-header { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-bottom:1px solid #eceae4; flex-shrink:0; }
+.po-root { display:flex; flex-direction:column; height:100vh; background:var(--color-bg); font-size:12px; color:var(--color-text); }
+.po-header { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-bottom:1px solid var(--color-border); flex-shrink:0; }
 .po-title { font-size:13px; font-weight:600; }
-.po-close { display:flex; align-items:center; justify-content:center; width:24px; height:24px; background:transparent; border:none; border-radius:4px; font-size:16px; color:#5f5f5d; cursor:pointer; }
-.po-close:hover { background:rgba(28,28,28,0.06); }
-.po-search { padding:8px 10px; border-bottom:1px solid #eceae4; flex-shrink:0; }
-.po-search input { width:100%; padding:5px 8px; background:#fcfbf8; border:1px solid #eceae4; border-radius:6px; font-size:12px; font-family:inherit; color:#1c1c1c; outline:none; }
+.po-close { display:flex; align-items:center; justify-content:center; width:24px; height:24px; background:transparent; border:none; border-radius:4px; font-size:16px; color:var(--color-text-secondary); cursor:pointer; }
+.po-close:hover { background:var(--color-bg-hover); }
+.po-search { padding:8px 10px; border-bottom:1px solid var(--color-border); flex-shrink:0; }
+.po-search input { width:100%; padding:5px 8px; background:var(--color-bg-elevated); border:1px solid var(--color-border); border-radius:6px; font-size:12px; font-family:inherit; color:var(--color-text); outline:none; }
 .po-body { flex:1; overflow-y:auto; padding:4px 8px; }
-.po-group-label { font-size:10px; font-weight:700; color:#8a8a88; text-transform:uppercase; letter-spacing:.5px; padding:8px 6px 4px; }
+.po-group-label { font-size:10px; font-weight:700; color:var(--color-text-muted); text-transform:uppercase; letter-spacing:.5px; padding:8px 6px 4px; }
 .po-row { display:flex; align-items:center; gap:6px; padding:5px 6px; border-radius:6px; cursor:pointer; transition:all .1s; }
-.po-row:hover { background:rgba(28,28,28,0.04); }
+.po-row:hover { background:var(--color-bg-hover); }
 .po-row-title { flex:1; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.po-row-sub { font-size:10px; color:#8a8a88; max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; }
-.po-row-time { font-size:10px; color:#8a8a88; flex-shrink:0; }
-.po-row-del { display:flex; align-items:center; justify-content:center; width:18px; height:18px; background:transparent; border:none; border-radius:3px; color:#8a8a88; cursor:pointer; font-size:12px; opacity:0; }
+.po-row-sub { font-size:10px; color:var(--color-text-muted); max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; }
+.po-row-time { font-size:10px; color:var(--color-text-muted); flex-shrink:0; }
+.po-row-del { display:flex; align-items:center; justify-content:center; width:18px; height:18px; background:transparent; border:none; border-radius:3px; color:var(--color-text-muted); cursor:pointer; font-size:12px; opacity:0; }
 .po-row:hover .po-row-del { opacity:1; }
 .po-row-del:hover { color:#c00; }
 .po-row-actions { display:flex; align-items:center; gap:6px; margin-top:4px; }
-.po-progress { height:3px; background:rgba(28,28,28,0.06); border-radius:2px; margin-top:2px; }
-.po-progress-fill { height:100%; background:#2563eb; border-radius:2px; transition:width 0.2s; }
-.po-status { font-size:10px; color:#8a8a88; }
+.po-progress { height:3px; background:var(--color-bg-hover); border-radius:2px; margin-top:2px; }
+.po-progress-fill { height:100%; background:var(--color-accent); border-radius:2px; transition:width 0.2s; }
+.po-status { font-size:10px; color:var(--color-text-muted); }
 .po-status.done { color:#16a34a; }
-.po-empty { padding:20px; text-align:center; font-size:11px; color:#8a8a88; }
-.po-footer { padding:6px 10px; border-top:1px solid #eceae4; display:flex; align-items:center; gap:6px; flex-shrink:0; }
-.po-btn { padding:3px 10px; background:rgba(28,28,28,0.04); border:1px solid #eceae4; border-radius:5px; font-size:11px; font-family:inherit; color:#5f5f5d; cursor:pointer; }
-.po-btn:hover { background:rgba(28,28,28,0.08); }
+.po-empty { padding:20px; text-align:center; font-size:11px; color:var(--color-text-muted); }
+.po-footer { padding:6px 10px; border-top:1px solid var(--color-border); display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.po-btn { padding:3px 10px; background:var(--color-bg-hover); border:1px solid var(--color-border); border-radius:5px; font-size:11px; font-family:inherit; color:var(--color-text-secondary); cursor:pointer; }
+.po-btn:hover { background:var(--color-bg-active); }
 .po-btn.sm { padding:1px 6px; font-size:10px; }
-.po-btn.danger { background:rgba(255,95,86,0.1); border-color:rgba(255,95,86,0.2); color:#c00; }
+.po-btn.danger { background:var(--color-error-bg); border-color:var(--color-error-border); color:#c00; }
 .po-warn { font-size:11px; color:#c00; }
-.po-input { width:100%; padding:4px 7px; background:#fcfbf8; border:1px solid #eceae4; border-radius:5px; font-size:11px; font-family:inherit; color:#1c1c1c; outline:none; margin-bottom:4px; }
-.po-tip-form { padding:8px; background:rgba(28,28,28,0.02); border-radius:6px; margin-bottom:8px; }
+.po-input { width:100%; padding:4px 7px; background:var(--color-bg-elevated); border:1px solid var(--color-border); border-radius:5px; font-size:11px; font-family:inherit; color:var(--color-text); outline:none; margin-bottom:4px; }
+.po-tip-form { padding:8px; background:var(--color-bg-hover); border-radius:6px; margin-bottom:8px; }
 </style>

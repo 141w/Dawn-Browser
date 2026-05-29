@@ -248,12 +248,12 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
         <!-- Inline chips (inside the card, above textarea) -->
         <div v-if="contextRefs.length > 0 || slashChip" class="ci-chips-inline">
           <span v-if="slashChip" class="ci-chip ci-chip-slash" @click="removeSlashChip">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#5f5f5d" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-secondary)" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
             <span class="ci-chip-name">{{ slashChip.label }}</span>
             <span class="ci-chip-x">&times;</span>
           </span>
           <span v-for="ref in contextRefs" :key="ref.id" class="ci-chip" @click="removeContextRef(ref.id)">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#5f5f5d" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-secondary)" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             <span class="ci-chip-name">{{ ref.label || '...' }}</span>
             <span class="ci-chip-x">&times;</span>
           </span>
@@ -356,30 +356,30 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
 .ci-chips-inline { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .ci-chip {
   display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
-  background: rgba(28,28,28,0.03); border: 1px solid #eceae4;
+  background: var(--color-shadow-sm); border: 1px solid var(--color-border);
   border-radius: 6px; font-size: 11px; cursor: pointer; max-width: 160px;
 }
-.ci-chip:hover { background: rgba(255,95,86,0.06); border-color: rgba(255,95,86,0.15); }
-.ci-chip-slash { background: rgba(28,28,28,0.05); border-color: rgba(28,28,28,0.12); }
+.ci-chip:hover { background: var(--color-error-bg); border-color: var(--color-error-border); }
+.ci-chip-slash { background: var(--color-bg-hover); border-color: var(--color-bg-active); }
 .ci-chip-slash .ci-chip-name { font-family: 'SF Mono', monospace; font-weight: 600; }
-.ci-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1c1c1c; }
-.ci-chip-x { font-size: 13px; color: #8a8a88; flex-shrink: 0; }
+.ci-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); }
+.ci-chip-x { font-size: 13px; color: var(--color-text-muted); flex-shrink: 0; }
 
 /* Card */
 .ci-card {
-  background: #fcfbf8; border: 1px solid #eceae4; border-radius: 20px;
-  box-shadow: rgba(0,0,0,0.04) 0px 2px 12px; transition: all .2s;
+  background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 20px;
+  box-shadow: var(--color-shadow-sm) 0px 2px 12px; transition: all .2s;
 }
-.ci-card:focus-within { border-color: rgba(28,28,28,0.22); box-shadow: rgba(0,0,0,0.07) 0px 4px 24px; }
+.ci-card:focus-within { border-color: var(--color-border-interactive); box-shadow: var(--color-shadow) 0px 4px 24px; }
 
 /* Text area */
 .ci-text-area { padding: 14px 16px 8px; }
 .ci-textarea {
   width: 100%; border: none; outline: none; background: transparent;
-  font-size: 14px; font-family: inherit; color: #1c1c1c; resize: none;
+  font-size: 14px; font-family: inherit; color: var(--color-text); resize: none;
   line-height: 1.6; min-height: 48px; max-height: 200px;
 }
-.ci-textarea::placeholder { color: #8a8a88; }
+.ci-textarea::placeholder { color: var(--color-text-muted); }
 
 /* Action bar */
 .ci-bar { display: flex; align-items: center; justify-content: space-between; padding: 4px 12px 10px; gap: 8px; }
@@ -389,36 +389,36 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
 .ci-tag-btn {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; background: transparent;
-  border: 1px solid #eceae4; border-radius: 7px;
+  border: 1px solid var(--color-border); border-radius: 7px;
   font-size: 15px; font-weight: 600; font-family: monospace;
-  color: #8a8a88; cursor: pointer; transition: all .15s;
+  color: var(--color-text-muted); cursor: pointer; transition: all .15s;
 }
-.ci-tag-btn:hover { background: rgba(28,28,28,0.04); color: #5f5f5d; border-color: rgba(28,28,28,0.15); }
+.ci-tag-btn:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); border-color: var(--color-border-interactive); }
 
 /* Agent toggle */
 .ci-agent-toggle {
   display: flex; align-items: center; gap: 5px;
   padding: 4px 10px; background: transparent;
-  border: 1px solid #eceae4; border-radius: 14px;
+  border: 1px solid var(--color-border); border-radius: 14px;
   font-size: 11px; font-family: inherit; font-weight: 600;
-  color: #8a8a88; cursor: pointer; transition: all .15s;
+  color: var(--color-text-muted); cursor: pointer; transition: all .15s;
   white-space: nowrap; user-select: none;
 }
-.ci-agent-toggle svg { flex-shrink: 0; color: #8a8a88; transition: color .15s; }
-.ci-agent-toggle:hover { background: rgba(28,28,28,0.04); color: #5f5f5d; border-color: rgba(28,28,28,0.15); }
+.ci-agent-toggle svg { flex-shrink: 0; color: var(--color-text-muted); transition: color .15s; }
+.ci-agent-toggle:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); border-color: var(--color-border-interactive); }
 .ci-agent-toggle.active {
-  background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); color: #2563eb;
+  background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); color: var(--color-accent);
 }
-.ci-agent-toggle.active svg { color: #2563eb; }
-.ci-agent-toggle.active:hover { background: rgba(59,130,246,0.12); }
+.ci-agent-toggle.active svg { color: var(--color-accent); }
+.ci-agent-toggle.active:hover { background: var(--color-accent-hover); }
 
 .ci-icon-btn {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; background: transparent;
-  border: 1px solid #eceae4; border-radius: 7px;
-  color: #8a8a88; cursor: pointer; transition: all .15s;
+  border: 1px solid var(--color-border); border-radius: 7px;
+  color: var(--color-text-muted); cursor: pointer; transition: all .15s;
 }
-.ci-icon-btn:hover { background: rgba(28,28,28,0.04); color: #5f5f5d; border-color: rgba(28,28,28,0.15); }
+.ci-icon-btn:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); border-color: var(--color-border-interactive); }
 
 /* Dropdown wrapper */
 .ci-drop-wrap { position: relative; }
@@ -427,51 +427,51 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
 .ci-dropdown {
   position: absolute; bottom: calc(100% + 6px); left: 0;
   min-width: 180px; max-width: 300px;
-  background: #fcfbf8; border: 1px solid #eceae4; border-radius: 10px;
-  box-shadow: rgba(0,0,0,0.1) 0px 4px 20px; z-index: 40;
+  background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 10px;
+  box-shadow: var(--color-shadow) 0px 4px 20px; z-index: 40;
   overflow: hidden; padding: 4px;
 }
 .ci-dropdown-right { left: auto; right: 0; }
 
 .ci-drop-head {
-  padding: 6px 10px; font-size: 10px; font-weight: 600; color: #8a8a88;
+  padding: 6px 10px; font-size: 10px; font-weight: 600; color: var(--color-text-muted);
   text-transform: uppercase; letter-spacing: .5px;
 }
-.ci-drop-empty { padding: 10px; font-size: 11px; color: #8a8a88; text-align: center; }
+.ci-drop-empty { padding: 10px; font-size: 11px; color: var(--color-text-muted); text-align: center; }
 
 .ci-drop-item {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px;
   border-radius: 6px; cursor: pointer; transition: all .1s;
-  font-size: 12px; color: #1c1c1c;
+  font-size: 12px; color: var(--color-text);
 }
-.ci-drop-item:hover, .ci-drop-item.active { background: rgba(28,28,28,0.04); }
-.ci-drop-item svg { flex-shrink: 0; color: #8a8a88; }
-.ci-drop-name { font-family: monospace; font-size: 11px; font-weight: 600; color: #1c1c1c; min-width: 60px; }
-.ci-drop-desc { font-size: 10px; color: #8a8a88; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-drop-item:hover, .ci-drop-item.active { background: var(--color-bg-hover); }
+.ci-drop-item svg { flex-shrink: 0; color: var(--color-text-muted); }
+.ci-drop-name { font-family: monospace; font-size: 11px; font-weight: 600; color: var(--color-text); min-width: 60px; }
+.ci-drop-desc { font-size: 10px; color: var(--color-text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ci-drop-del {
   display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; background: transparent; border: none;
-  border-radius: 4px; color: #8a8a88; cursor: pointer; flex-shrink: 0;
+  border-radius: 4px; color: var(--color-text-muted); cursor: pointer; flex-shrink: 0;
 }
-.ci-drop-del:hover { background: rgba(255,95,86,0.1); color: #c00; }
+.ci-drop-del:hover { background: var(--color-error-bg); color: var(--color-error); }
 
 /* Model chip */
 .ci-model-chip {
   display: flex; align-items: center; gap: 5px; padding: 4px 10px;
-  background: transparent; border: 1px solid #eceae4; border-radius: 14px;
-  font-size: 11px; font-family: inherit; color: #5f5f5d; cursor: pointer;
+  background: transparent; border: 1px solid var(--color-border); border-radius: 14px;
+  font-size: 11px; font-family: inherit; color: var(--color-text-secondary); cursor: pointer;
   transition: all .15s; white-space: nowrap;
 }
-.ci-model-chip:hover { background: rgba(28,28,28,0.04); color: #1c1c1c; }
+.ci-model-chip:hover { background: var(--color-bg-hover); color: var(--color-text); }
 .ci-model-chip-label { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
 
 /* Send */
 .ci-send {
   display: flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; background: #1c1c1c; border: none;
-  border-radius: 9px; color: #fcfbf8; cursor: pointer; flex-shrink: 0; transition: all .15s;
+  width: 34px; height: 34px; background: var(--color-text); border: none;
+  border-radius: 9px; color: var(--color-bg-elevated); cursor: pointer; flex-shrink: 0; transition: all .15s;
 }
 .ci-send:hover { opacity: .85; }
 .ci-send:disabled { opacity: .2; cursor: not-allowed; }
-.ci-send.stop { background: #ff5f56; }
+.ci-send.stop { background: var(--color-error); }
 </style>

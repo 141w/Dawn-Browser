@@ -17,8 +17,11 @@
     "pack:mac": "vite build && electron-builder --mac"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.10.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
+    "node-cron": "^4.2.1",
     "pdfjs-dist": "^5.7.284",
     "vue": "^3.5.13",
     "xlsx": "^0.18.5"
@@ -44,7 +47,9 @@
     ],
     "win": {
       "icon": "public/icon.png",
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "signAndEditExecutable": false
     },
     "mac": {
@@ -52,7 +57,9 @@
     },
     "linux": {
       "icon": "public/icon.png",
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   }
 }

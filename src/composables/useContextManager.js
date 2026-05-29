@@ -81,47 +81,40 @@ function shouldCompact(messages) {
 }
 
 function compactHistory(messages, targetPercent = 0.5) {
-  if (messages.length <= 4) return messages
+  if (messages.length <= 6) return messages
 
   const targetTokens = Math.floor(contextLimits.maxTokens * targetPercent)
   const estimated = estimateTokens(messages)
 
   if (estimated <= targetTokens) return messages
 
-  const summaryPrompt = `[Previous conversation summary - context compacted to save token space. Key points retained below.]`
-
   const compacted = [...messages]
 
-  let keepStart = 0
-  let keepEnd = messages.length - 1
+  // Keep: system msg (index 0), first user msg, last 6 messages
+  const keepStart = compacted[0]?.role === 'system' ? 1 : 0
+  const firstUserIdx = compacted.findIndex((m, i) => i >= keepStart && m.role === 'user')
+  const keepEnd = Math.max(firstUserIdx + 1, compacted.length - 6)
 
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === 'system' || i < 2) {
-      keepStart = i + 1
-      continue
-    }
-    break
-  }
+  // Extract summary from dropped middle section
+  const dropped = compacted.slice(keepStart, keepEnd)
+  const toolsUsed = [...new Set(dropped.filter(m => m.role === 'tool').map(m => m.name).filter(Boolean))]
+  const userMsgs = dropped.filter(m => m.role === 'user')
+  const lastDroppedUser = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1].content?.slice(0, 200) : ''
 
-  for (let i = messages.length - 1; i > keepStart; i--) {
-    if (messages[i].role === 'user' || messages[i].role === 'assistant') {
-      keepEnd = i
-      break
-    }
-  }
+  let summaryText = '[Context compacted to save tokens.] '
+  if (toolsUsed.length > 0) summaryText += `Tools used: ${toolsUsed.join(', ')}. `
+  if (lastDroppedUser) summaryText += `Last topic: ${lastDroppedUser.slice(0, 150)}`
 
-  const toRemove = [{
-    role: 'user',
-    content: summaryPrompt
-  }]
+  const summaryMsg = { role: 'user', content: summaryText }
 
-  const remaining = [
-    ...compacted.slice(0, keepStart),
-    ...toRemove,
+  // Build: system + first user + summary + last 6 messages
+  const result = [
+    ...compacted.slice(0, keepStart + (firstUserIdx >= keepStart ? 1 : 0)),
+    summaryMsg,
     ...compacted.slice(keepEnd)
   ]
 
-  return remaining
+  return result
 }
 
 function setContextLimit(tokens) {
@@ -134,10 +127,10 @@ function getContextLimits() {
 
 function getToolLoopConfig() {
   return {
-    maxRounds: 10,
-    warningThreshold: 5,
-    criticalThreshold: 8,
-    circuitBreakerThreshold: 12,
+    maxRounds: 8,
+    warningThreshold: 3,
+    criticalThreshold: 5,
+    circuitBreakerThreshold: 8,
     historySize: 20
   }
 }
@@ -173,6 +166,40 @@ function detectToolLoop(toolCallHistory) {
         tool: pattern1,
         count: 2,
         message: `Ping-pong pattern detected: ${pattern1} repeated`
+      }
+    }
+  }
+
+  // Same tool 3+ times in last 5 calls (tighter window)
+  const last5 = recent.slice(-5)
+  const last5Counts = {}
+  for (const call of last5) {
+    last5Counts[call.name] = (last5Counts[call.name] || 0) + 1
+  }
+  for (const [name, count] of Object.entries(last5Counts)) {
+    if (count >= 3) {
+      return {
+        level: 'warning',
+        tool: name,
+        count,
+        message: `Tool "${name}" called ${count} times in last 5 calls - likely stuck in a loop`
+      }
+    }
+  }
+
+  // 3+ distinct tools called in rapid succession (likely alternating loop)
+  if (recent.length >= 6) {
+    const last6 = recent.slice(-6)
+    const uniqueTools = new Set(last6.map(c => c.name))
+    if (uniqueTools.size >= 3) {
+      const allRecent = last6.every(c => Date.now() - c.time < 10000)
+      if (allRecent) {
+        return {
+          level: 'warning',
+          tool: [...uniqueTools].join(', '),
+          count: last6.length,
+          message: `${last6.length} rapid tool calls across ${uniqueTools.size} different tools - possible multi-tool loop`
+        }
       }
     }
   }

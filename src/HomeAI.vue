@@ -73,11 +73,11 @@ function handleSend(finalMsg, slashCmd, displayMsg) {
     <!-- Agent status bar -->
     <div v-if="agentState !== 'idle'" class="ha-agent-bar" :class="agentState">
       <span class="ha-agent-dot"></span>
-      <span v-if="agentState === 'thinking'">Agent 思考中...</span>
-      <span v-else-if="agentState === 'executing'">Agent 执行工具中...</span>
+      <span v-if="agentState === 'thinking'">{{ t('agent.thinking') }}</span>
+      <span v-else-if="agentState === 'executing'">{{ t('agent.executing') }}</span>
       <span v-if="pendingToolCalls.length > 0" class="ha-agent-tool-name">{{ pendingToolCalls.map(tc => tc.name).join(', ') }}</span>
-      <button v-if="agentState === 'executing'" class="ha-agent-btn" @click="skipCurrentTool">Skip</button>
-      <button class="ha-agent-btn stop" @click="interruptAgent">Stop</button>
+      <button v-if="agentState === 'executing'" class="ha-agent-btn" @click="skipCurrentTool">{{ t('agent.skip') }}</button>
+      <button class="ha-agent-btn stop" @click="interruptAgent">{{ t('agent.stop') }}</button>
     </div>
 
     <!-- MODE 1: Centered welcome + input -->
@@ -109,6 +109,10 @@ function handleSend(finalMsg, slashCmd, displayMsg) {
                 <span class="ha-tool-args">{{ typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments).slice(0, 80) }}</span>
               </div>
             </div>
+            <details v-if="msg.reasoning_content" class="ha-reasoning">
+              <summary class="ha-reasoning-toggle">{{ t('reasoning.label') }}</summary>
+              <div class="ha-reasoning-body">{{ msg.reasoning_content }}</div>
+            </details>
             <div v-if="msg.content" class="ha-bubble asst" v-html="renderMarkdown(msg.content)"></div>
           </div>
 
@@ -135,11 +139,11 @@ function handleSend(finalMsg, slashCmd, displayMsg) {
 
         <!-- Tool confirm dialog -->
         <div v-if="toolConfirmRequired" class="ha-tool-confirm">
-          <p>Allow AI to use <strong>{{ toolConfirmRequired.toolName }}</strong>?</p>
+          <p>{{ t('tool.confirm') }} <strong>{{ toolConfirmRequired.toolName }}</strong>?</p>
           <code>{{ JSON.stringify(toolConfirmRequired.toolArgs).slice(0, 100) }}</code>
           <div class="ha-tool-confirm-actions">
-            <button class="ha-confirm-deny" @click="confirmToolCall(false)">拒 绝</button>
-            <button class="ha-confirm-allow" @click="confirmToolCall(true)">允 许</button>
+            <button class="ha-confirm-deny" @click="confirmToolCall(false)">{{ t('tool.confirm.deny') }}</button>
+            <button class="ha-confirm-allow" @click="confirmToolCall(true)">{{ t('tool.confirm.allow') }}</button>
           </div>
         </div>
 
@@ -153,106 +157,122 @@ function handleSend(finalMsg, slashCmd, displayMsg) {
 </template>
 
 <style scoped>
-.ha-root { display: flex; flex-direction: column; height: 100%; background: #f7f4ed; }
+.ha-root { display: flex; flex-direction: column; height: 100%; background: var(--color-bg); }
 
 /* Header */
 .ha-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-bottom: 1px solid #eceae4; flex-shrink: 0;
+  padding: 8px 12px; border-bottom: 1px solid var(--color-border); flex-shrink: 0;
 }
 .ha-header-left { display: flex; align-items: center; gap: 8px; }
-.ha-title-sm { font-size: 13px; font-weight: 600; color: #1c1c1c; }
+.ha-title-sm { font-size: 13px; font-weight: 600; color: var(--color-text); }
 .ha-icon-btn {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; background: transparent; border: none;
-  border-radius: 6px; color: #5f5f5d; cursor: pointer; transition: all .15s;
+  border-radius: 6px; color: var(--color-text-secondary); cursor: pointer; transition: all .15s;
 }
-.ha-icon-btn:hover { background: rgba(28,28,28,.06); color: #1c1c1c; }
-.ha-icon-btn.active { background: rgba(28,28,28,.08); color: #1c1c1c; }
+.ha-icon-btn:hover { background: var(--color-bg-hover); color: var(--color-text); }
+.ha-icon-btn.active { background: var(--color-bg-active); color: var(--color-text); }
 
 /* Conversation list */
-.ha-conv-list { padding: 6px; border-bottom: 1px solid #eceae4; }
+.ha-conv-list { padding: 6px; border-bottom: 1px solid var(--color-border); }
 .ha-conv-item {
   display: flex; align-items: center; padding: 8px 10px; border-radius: 6px;
   cursor: pointer; transition: all .15s; margin-bottom: 2px; gap: 8px;
 }
-.ha-conv-item:hover { background: rgba(28,28,28,.04); }
-.ha-conv-item.active { background: rgba(28,28,28,.06); }
-.ha-conv-title { flex: 1; font-size: 13px; color: #1c1c1c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ha-conv-time { font-size: 10px; color: #8a8a88; flex-shrink: 0; }
+.ha-conv-item:hover { background: var(--color-bg-hover); }
+.ha-conv-item.active { background: var(--color-bg-hover); }
+.ha-conv-title { flex: 1; font-size: 13px; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ha-conv-time { font-size: 10px; color: var(--color-text-muted); flex-shrink: 0; }
 .ha-conv-del {
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; background: transparent; border: none;
-  border-radius: 4px; color: #8a8a88; cursor: pointer; font-size: 14px; opacity: 0; transition: all .15s;
+  border-radius: 4px; color: var(--color-text-muted); cursor: pointer; font-size: 14px; opacity: 0; transition: all .15s;
 }
 .ha-conv-item:hover .ha-conv-del { opacity: 1; }
-.ha-conv-del:hover { background: rgba(28,28,28,.08); color: #1c1c1c; }
-.ha-empty { padding: 20px; text-align: center; color: #8a8a88; font-size: 13px; }
+.ha-conv-del:hover { background: var(--color-bg-active); color: var(--color-text); }
+.ha-empty { padding: 20px; text-align: center; color: var(--color-text-muted); font-size: 13px; }
 
 /* Agent bar */
 .ha-agent-bar {
   display: flex; align-items: center; gap: 6px; padding: 5px 12px;
-  background: rgba(59,130,246,.06); border-bottom: 1px solid rgba(59,130,246,.12);
-  font-size: 11px; color: #2563eb; flex-shrink: 0; user-select: none;
+  background: var(--color-accent-bg); border-bottom: 1px solid var(--color-accent-hover);
+  font-size: 11px; color: var(--color-accent); flex-shrink: 0; user-select: none;
 }
-.ha-agent-bar.executing { background: rgba(59,130,246,.1); }
+.ha-agent-bar.executing { background: var(--color-accent-hover); }
 .ha-agent-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: #2563eb;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent);
   animation: ha-bounce 1.4s ease-in-out infinite;
 }
 .ha-agent-tool-name {
-  font-family: 'SF Mono', monospace; font-size: 10px; color: #1c1c1c;
+  font-family: 'SF Mono', monospace; font-size: 10px; color: var(--color-text);
   margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px;
 }
 .ha-agent-btn {
-  padding: 1px 7px; background: rgba(28,28,28,0.06); border: 1px solid #eceae4;
-  border-radius: 4px; font-size: 10px; font-family: inherit; color: #5f5f5d; cursor: pointer; flex-shrink: 0;
+  padding: 1px 7px; background: var(--color-bg-hover); border: 1px solid var(--color-border);
+  border-radius: 4px; font-size: 10px; font-family: inherit; color: var(--color-text-secondary); cursor: pointer; flex-shrink: 0;
 }
-.ha-agent-btn:hover { background: rgba(28,28,28,0.12); }
-.ha-agent-btn.stop { background: rgba(255,95,86,0.1); border-color: rgba(255,95,86,0.2); color: #c00; }
+.ha-agent-btn:hover { background: var(--color-bg-active); }
+.ha-agent-btn.stop { background: var(--color-error-bg); border-color: var(--color-error-border); color: var(--color-error); }
 
 /* Centered */
 .ha-centered {
   flex: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 18px; padding: 40px 20px;
 }
-.ha-title { font-size: 22px; font-weight: 600; color: #1c1c1c; letter-spacing: -.3px; }
+.ha-title { font-size: 22px; font-weight: 600; color: var(--color-text); letter-spacing: -.3px; }
 
 /* Messages mode */
 .ha-messages { flex: 1; overflow-y: auto; padding: 20px 24px; }
 .ha-msg { margin-bottom: 16px; display: flex; flex-direction: column; }
 .ha-msg.user { align-items: flex-end; }
 .ha-bubble { max-width: 75%; padding: 10px 15px; border-radius: 16px; font-size: 14px; line-height: 1.6; word-break: break-word; white-space: pre-wrap; }
-.ha-bubble.user { background: #1c1c1c; color: #fcfbf8; border-bottom-right-radius: 6px; }
-.ha-slash-badge { display: inline-flex; align-self: flex-start; padding: 1px 7px; background: rgba(255,255,255,.12); border-radius: 4px; font-size: 10px; font-family: monospace; font-weight: 600; color: rgba(255,255,255,.7); }
-.ha-bubble.asst { background: #fcfbf8; color: #1c1c1c; border: 1px solid #eceae4; border-bottom-left-radius: 6px; box-shadow: rgba(0,0,0,.03) 0 1px 6px; }
+.ha-bubble.user { background: var(--color-user-bubble); color: var(--color-user-text); border-bottom-right-radius: 6px; }
+.ha-slash-badge { display: inline-flex; align-self: flex-start; padding: 1px 7px; background: rgba(255,255,255,0.15); border-radius: 4px; font-size: 10px; font-family: monospace; font-weight: 600; color: rgba(255,255,255,.7); }
+.ha-bubble.asst { background: var(--color-bg-elevated); color: var(--color-text); border: 1px solid var(--color-border); border-bottom-left-radius: 6px; box-shadow: var(--color-shadow-sm) 0 1px 6px; }
 .ha-bubble.asst :deep(p) { margin: 0 0 6px; }
 .ha-bubble.asst :deep(p:last-child) { margin: 0; }
-.ha-bubble.asst :deep(code) { background: rgba(28,28,28,.05); padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 12px; }
-.ha-bubble.asst :deep(pre) { background: rgba(28,28,28,.04); padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
+.ha-bubble.asst :deep(code) { background: var(--color-bg-hover); padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+.ha-bubble.asst :deep(pre) { background: var(--color-bg-hover); padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
+
+.ha-bubble.asst :deep(.mk-table) { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
+.ha-bubble.asst :deep(.mk-table th),
+.ha-bubble.asst :deep(.mk-table td) { border: 1px solid var(--color-border); padding: 6px 10px; text-align: left; }
+.ha-bubble.asst :deep(.mk-table th) { background: var(--color-bg-hover); font-weight: 600; }
+.ha-bubble.asst :deep(.mk-table tr:hover) { background: var(--color-bg-hover); }
+.ha-bubble.asst :deep(h1),.ha-bubble.asst :deep(h2),.ha-bubble.asst :deep(h3) { font-weight: 600; margin: 10px 0 6px; }
+.ha-bubble.asst :deep(h1) { font-size: 18px; }
+.ha-bubble.asst :deep(h2) { font-size: 16px; }
+.ha-bubble.asst :deep(h3) { font-size: 14px; }
+.ha-bubble.asst :deep(strong) { font-weight: 600; }
+.ha-bubble.asst :deep(.mk-link) { color: var(--color-accent); text-decoration: underline; }
+.ha-bubble.asst :deep(.mk-blockquote) { border-left: 3px solid var(--color-border); padding-left: 12px; margin: 8px 0; color: var(--color-text-secondary); font-style: italic; }
+.ha-bubble.asst :deep(.mk-ul),.ha-bubble.asst :deep(.mk-ol) { margin: 4px 0; padding-left: 20px; }
+.ha-bubble.asst :deep(.mk-li),.ha-bubble.asst :deep(.mk-li-ol) { margin: 2px 0; }
+.ha-bubble.asst :deep(.mk-hr) { border: none; border-top: 1px solid var(--color-border); margin: 12px 0; }
 
 /* Tool calls */
 .ha-msg-asst { display: flex; flex-direction: column; max-width: 85%; }
 .ha-tool-calls { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .ha-tool-call {
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;
-  background: rgba(28,28,28,.04); border-radius: 4px; font-size: 11px;
-  border-left: 2px solid #5f5f5d;
+  background: var(--color-bg-hover); border-radius: 4px; font-size: 11px;
+  border-left: 2px solid var(--color-text-secondary);
 }
-.ha-tool-call.running { border-left-color: #3b82f6; background: rgba(59,130,246,.06); }
+.ha-tool-call.running { border-left-color: var(--color-accent); background: var(--color-accent-bg); }
 .ha-tool-icon.spinning { display: inline-block; animation: ha-spin 1s linear infinite; }
 @keyframes ha-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.ha-tool-name { font-family: monospace; font-size: 10px; font-weight: 600; color: #1c1c1c; }
-.ha-tool-args { font-size: 10px; color: #8a8a88; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
-.ha-tool-status { font-size: 10px; color: #8a8a88; }
+.ha-tool-name { font-family: monospace; font-size: 10px; font-weight: 600; color: var(--color-text); }
+.ha-tool-args { font-size: 10px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.ha-tool-status { font-size: 10px; color: var(--color-text-muted); }
 
 /* Tool result */
 .ha-tool-result {
   display: flex; gap: 8px; padding: 4px 8px; font-size: 10px;
-  background: rgba(28,28,28,.02); border-radius: 4px; border-left: 2px solid #eceae4;
+  background: var(--color-bg-hover); border-radius: 4px; border-left: 2px solid var(--color-border);
 }
-.ha-tool-result-label { font-family: monospace; font-weight: 600; color: #5f5f5d; flex-shrink: 0; }
-.ha-tool-result-text { color: #8a8a88; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ha-tool-result-label { font-family: monospace; font-weight: 600; color: var(--color-text-secondary); flex-shrink: 0; }
+.ha-tool-result-text { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Pending tools */
 .ha-pending-tools { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
@@ -263,20 +283,27 @@ function handleSend(finalMsg, slashCmd, displayMsg) {
 .ha-dot:nth-child(2) { animation-delay: .2s; }
 .ha-dot:nth-child(3) { animation-delay: .4s; }
 @keyframes ha-bounce { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
-.ha-error { padding: 8px 12px; background: rgba(255,95,86,.06); border: 1px solid rgba(255,95,86,.15); border-radius: 8px; font-size: 12px; color: #c00; }
+.ha-reasoning { margin-bottom: 6px; }
+.ha-reasoning-toggle { font-size: 11px; color: var(--color-text-muted); cursor: pointer; user-select: none; padding: 2px 0; }
+.ha-reasoning-toggle:hover { color: var(--color-text-secondary); }
+.ha-reasoning-body { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; padding: 8px 10px; background: var(--color-shadow-sm); border-radius: 6px; margin-top: 4px; white-space: pre-wrap; }
+.ha-error { padding: 8px 12px; background: var(--color-error-bg); border: 1px solid var(--color-error-border); border-radius: 8px; font-size: 12px; color: var(--color-error); }
 
 /* Tool confirm */
 .ha-tool-confirm {
   padding: 10px 12px; background: rgba(59,130,246,.05); border: 1px solid rgba(59,130,246,.15);
   border-radius: 8px; margin-bottom: 8px;
 }
-.ha-tool-confirm p { font-size: 12px; color: #1c1c1c; margin: 0 0 4px; }
-.ha-tool-confirm code { display: block; font-size: 10px; color: #8a8a88; margin-bottom: 8px; word-break: break-all; }
+.ha-tool-confirm p { font-size: 12px; color: var(--color-text); margin: 0 0 4px; }
+.ha-tool-confirm code { display: block; font-size: 10px; color: var(--color-text-muted); margin-bottom: 8px; word-break: break-all; }
 .ha-tool-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .ha-confirm-deny, .ha-confirm-allow { padding: 4px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; border: none; cursor: pointer; }
-.ha-confirm-deny { background: rgba(28,28,28,.06); color: #5f5f5d; }
-.ha-confirm-allow { background: #1c1c1c; color: #fcfbf8; }
+.ha-confirm-deny { background: var(--color-bg-hover); color: var(--color-text-secondary); }
+.ha-confirm-allow { background: var(--color-user-bubble); color: var(--color-user-text); }
 
 /* Input bottom */
 .ha-input-bottom { flex-shrink: 0; padding: 12px 16px 16px; }
 </style>
+
+
+

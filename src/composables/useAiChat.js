@@ -5,7 +5,10 @@ import { useAgentLoop } from './useAgentLoop'
 import { useContextManager } from './useContextManager'
 import { useAutonomousBrowser } from './useAutonomousBrowser'
 import { loadConversationsFromDB, saveConversationsToDB } from './useMemory'
+import { formatError } from './useErrorFormat'
 import { useSkillSystem } from './useSkillSystem'
+import { useAgentMemory } from './useAgentMemory'
+import { useTaskScheduler } from './useTaskScheduler'
 
 const conversations = ref([])
 const activeConvId = ref(null)
@@ -17,6 +20,7 @@ const agentState = ref('idle')
 const agentMode = ref(false)
 let abortController = null
 let toolCallHistory = []
+let _geminiTcCounter = 0
 let _loadPromise = null
 let _saveQueue = Promise.resolve()
 
@@ -124,7 +128,7 @@ function saveConversations() {
 }
 
 function createConversation() {
-  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  const id = Date.now().toString(36) + ++_geminiTcCounter
   const conv = { id, title: 'New Chat', messages: [], createdAt: Date.now() }
   conversations.value.unshift(conv)
   activeConvId.value = id
@@ -148,7 +152,15 @@ function updateTitle(convId) {
   if (conv && conv.messages.length > 0) {
     const firstUserMsg = conv.messages.find(m => m.role === 'user')
     if (firstUserMsg) {
-      conv.title = firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '')
+      let text = firstUserMsg.content
+        .replace(/^\/\S+\s*/, '')
+        .replace(/@\S+/g, '')
+        .replace(/\[Page Context\][\s\S]*$/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (text.length > 0) {
+        conv.title = text.slice(0, 40) + (text.length > 40 ? '...' : '')
+      }
     }
   }
 }
@@ -182,9 +194,8 @@ async function sendMessage(content, pageContext = null, images = null, slashCmd 
     userContent += ctx
   }
 
-  // Agent mode: manual toggle OR detected complex browsing request
-  const isComplex = agentMode.value ||
-    /搜索|对比|分析并|找到.*所有|每个|多个|全部|打开|访问|去.*网站|浏览|research|compare.*and|find.*all|analyze.*each|open.*and.*read|go to|visit.*and|browse.*and/i.test(userContent)
+  // Agent mode: only when user explicitly toggles agent mode
+  const isComplex = agentMode.value
 
   if (isComplex) {
     createPlan(userContent)
@@ -215,7 +226,7 @@ async function sendMessage(content, pageContext = null, images = null, slashCmd 
 
   const { formatSkillsForPrompt, skills } = useSkillSystem()
 
-  const baseSystemPrompt = config.value.systemPrompt || 'You are a helpful assistant.'
+  const baseSystemPrompt = config.value.systemPrompt || '你是一个有用的助手。'
   const skillsPrompt = formatSkillsForPrompt(skills.value)
   const systemPrompt = baseSystemPrompt + skillsPrompt
 
@@ -230,7 +241,8 @@ IMPORTANT:
 - Only use tools when necessary for the task
 - Read pages before clicking or filling
 - If a tool fails, try an alternative approach
-- Always report results clearly, don't just keep calling tools` : systemPrompt
+- Always report results clearly, don't just keep calling tools
+- Respond in the same language as the user's message (Chinese if the user writes in Chinese)` : systemPrompt
 
   const allTools = isComplex ? getToolsForProvider(format) : []
 
@@ -269,17 +281,28 @@ IMPORTANT:
 async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, tools, cfg, executeTool, resolvePermission, providerFormat, updateCtx, shouldCompactFn, compactHistoryFn, detectLoop, getLoopCfg) {
   const loopCfg = getLoopCfg()
   const MAX_TOOL_ROUNDS = loopCfg.maxRounds
+  const { createTask, addStep, updateTaskStatus } = useAgentMemory()
 
+  // Create a persistent task record for agent runs
+  let memoryTaskId = null
+  if (tools.length > 0) {
+    const firstUserMsg = conv.messages.find(m => m.role === 'user')
+    const goal = firstUserMsg?.content?.slice(0, 200) || 'Agent task'
+    memoryTaskId = 'task_' + Date.now().toString(36)
+    try { await createTask(memoryTaskId, goal) } catch {}
+  }
+
+  try {
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     if (abortController?.signal.aborted) break
 
     const loopResult = detectLoop(toolCallHistory)
     if (loopResult) {
       if (loopResult.level === 'critical') {
-        conv.messages.push({ role: 'assistant', content: `I've detected I may be stuck in a loop (${loopResult.message}). Let me reconsider my approach.`, toolCalls: [] })
+        conv.messages.push({ role: 'assistant', content: `检测到可能陷入循环（${loopResult.message}），正在重新调整策略。`, toolCalls: [] })
         break
       } else if (loopResult.level === 'warning') {
-        conv.messages.push({ role: 'assistant', content: `I notice I've been calling "${loopResult.tool}" repeatedly. Let me adjust my strategy.`, toolCalls: [] })
+        conv.messages.push({ role: 'assistant', content: `注意到反复调用了 "${loopResult.tool}"，正在调整策略。`, toolCalls: [] })
       }
     }
 
@@ -330,7 +353,7 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
     const validCalls = toolCalls.filter(tc => tc.name)
     if (validCalls.length === 0 && toolCalls.length > 0) {
       assistantMsg.content = assistantMsg.content || ''
-      const toolResult = { role: 'tool', toolCallId: 'err', name: '(malformed)', content: 'Model returned tool calls with empty names. The selected model may not support function calling. Try switching to DeepSeek or GPT-4o.' }
+      const toolResult = { role: 'tool', toolCallId: 'err', name: '(malformed)', content: '模型返回了名称为空的工具调用，当前模型可能不支持函数调用，请尝试切换到 DeepSeek 或 GPT-4o。' }
       conv.messages.push(toolResult)
       break
     }
@@ -379,7 +402,7 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
           toolConfirmRequired.value.resolve = resolve
         })
         if (!confirmed) {
-          conv.messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: `Tool "${tc.name}" was denied.` })
+          conv.messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: `工具 "${tc.name}" 已被拒绝。` })
           toolConfirmRequired.value = null
           continue
         }
@@ -401,9 +424,25 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
         name: tc.name,
         content: toolContent
       })
+
+      // Persist step to agent memory
+      if (memoryTaskId) {
+        try { await addStep(memoryTaskId, tc.name, args, toolContent.substring(0, 2000)) } catch {}
+      }
     }
 
     pendingToolCalls.value = []
+  }
+
+    // Mark task as done
+    if (memoryTaskId) {
+      try { await updateTaskStatus(memoryTaskId, 'done') } catch {}
+    }
+  } catch (e) {
+    if (memoryTaskId) {
+      try { await updateTaskStatus(memoryTaskId, 'failed') } catch {}
+    }
+    throw e
   }
 }
 
@@ -435,6 +474,16 @@ function buildApiMessages(conv, systemPrompt, format) {
           contentBlocks.push({ type: 'image_url', image_url: { url: img } })
         }
         msgs.push({ role: 'user', content: contentBlocks })
+      } else if (m.images && m.images.length > 0 && format === 'google') {
+        const parts = [{ text: effectiveContent }]
+        for (const img of m.images) {
+          if (img.startsWith('data:image/')) {
+            const mimeType = img.match(/^data:(image\/\w+);/)?.[1] || 'image/png'
+            const data = img.split(',')[1]
+            parts.push({ inlineData: { mimeType, data } })
+          }
+        }
+        msgs.push({ role: 'user', parts })
       } else {
         msgs.push({ role: 'user', content: effectiveContent })
       }
@@ -458,14 +507,25 @@ function buildApiMessages(conv, systemPrompt, format) {
           const contentBlocks = []
           if (m.content) contentBlocks.push({ type: 'text', text: m.content })
           for (const tc of m.toolCalls) {
+            let input = tc.arguments || {}
+            if (typeof input === 'string') { try { input = JSON.parse(input) } catch {} }
             contentBlocks.push({
               type: 'tool_use',
               id: tc.id,
               name: tc.name,
-              input: typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || {})
+              input
             })
           }
           msgs.push({ role: 'assistant', content: contentBlocks })
+        } else if (format === 'google') {
+          const parts = []
+          if (m.content) parts.push({ text: m.content })
+          for (const tc of m.toolCalls) {
+            let args = tc.arguments || {}
+            if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+            parts.push({ functionCall: { name: tc.name, args } })
+          }
+          msgs.push({ role: 'model', parts })
         }
       } else if (m.content) {
         if (format === 'anthropic') {
@@ -483,6 +543,11 @@ function buildApiMessages(conv, systemPrompt, format) {
         msgs.push({
           role: 'user',
           content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }]
+        })
+      } else if (format === 'google') {
+        msgs.push({
+          role: 'function',
+          parts: [{ functionResponse: { name: m.name, response: { result: m.content || '' } } }]
         })
       }
     }
@@ -509,7 +574,7 @@ async function streamOpenAI(baseUrl, apiKey, model, messages, cfg, assistantMsg,
   if (!response.ok) {
     const err = await response.text()
     console.error('[Dawn] API error:', response.status, url, err)
-    throw new Error(`API error (${response.status}): ${err}`)
+    throw new Error(formatError(`API error (${response.status}): ${err}`))
   }
 
   const reader = response.body.getReader()
@@ -550,7 +615,7 @@ async function streamOpenAI(baseUrl, apiKey, model, messages, cfg, assistantMsg,
           }
         }
         if (choice.finish_reason === 'tool_calls') break
-      } catch {}
+      } catch (e) { console.warn('[Dawn] stream parse error:', e.message) }
     }
   }
 
@@ -620,7 +685,7 @@ async function streamAnthropic(baseUrl, apiKey, model, messages, cfg, assistantM
           accumulatedToolCalls.push(currentToolUse)
           currentToolUse = null
         }
-      } catch {}
+      } catch (e) { console.warn('[Dawn] Anthropic stream parse error:', e.message) }
     }
   }
 
@@ -631,7 +696,7 @@ async function streamGoogle(baseUrl, apiKey, model, messages, cfg, assistantMsg,
   const url = `${baseUrl.replace(/\/+$/, '')}/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`
 
   const contents = messages
-    .filter(m => m.role !== 'system' && m.role !== 'tool')
+    .filter(m => m.role !== 'system')
     .map(m => {
       if (m.role === 'assistant' && m.toolCalls?.length > 0) {
         const parts = []
@@ -640,7 +705,7 @@ async function streamGoogle(baseUrl, apiKey, model, messages, cfg, assistantMsg,
           parts.push({
             functionCall: {
               name: tc.name,
-              args: typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : (tc.arguments || {})
+              args: typeof tc.arguments === 'string' ? (function() { try { return JSON.parse(tc.arguments) } catch { return {} } })() : (tc.arguments || {})
             }
           })
         }
@@ -701,7 +766,7 @@ async function streamGoogle(baseUrl, apiKey, model, messages, cfg, assistantMsg,
             })
           }
         }
-      } catch {}
+      } catch (e) { console.warn('[Dawn] stream parse error:', e.message) }
     }
   }
 
@@ -721,7 +786,7 @@ function skipCurrentTool() { _skipCurrentTool = true }
 function interruptAgent() {
   stopStreaming()
   const conv = conversations.value.find(c => c.id === activeConvId.value)
-  if (conv) conv.messages.push({ role: 'assistant', content: '[Interrupted by user]', toolCalls: [] })
+  if (conv) conv.messages.push({ role: 'assistant', content: '[被用户中断]', toolCalls: [] })
   saveConversations()
 }
 
@@ -851,6 +916,17 @@ function getCachedResponse(key) {
 
 export function useAiChat() {
   loadConversations()
+
+  // Wire scheduler:execute events to sendMessage
+  const { onExecute, markDone, markFailed } = useTaskScheduler()
+  onExecute(async ({ id, prompt }) => {
+    await sendMessage(prompt)
+    if (streamError.value) {
+      markFailed(id, streamError.value)
+    } else {
+      markDone(id, 'Completed')
+    }
+  })
 
   return {
     conversations,

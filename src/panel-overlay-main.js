@@ -1,5 +1,8 @@
-import { createApp } from "vue"
-import PanelOverlay from "./PanelOverlay.vue"
+import { createApp } from "vue";
+import "./theme.css";
+import { applyThemeFromStorage } from "./composables/applyTheme.js";
+import PanelOverlay from "./PanelOverlay.vue";
 
-const app = createApp(PanelOverlay)
-app.mount("#app")
+applyThemeFromStorage();
+const app = createApp(PanelOverlay);
+app.mount("#app");

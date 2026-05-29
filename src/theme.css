@@ -1,0 +1,58 @@
+/* Dawn Theme Variables */
+html, body { background: var(--color-bg); margin: 0; padding: 0; }
+:root, [data-theme="light"] {
+  --color-bg: #f7f4ed;
+  --color-surface: #f7f4ed;
+  --color-bg-elevated: #fcfbf8;
+  --color-bg-hover: rgba(28,28,28,0.04);
+  --color-bg-active: rgba(28,28,28,0.08);
+  --color-bg-input: #fff;
+  --color-text: #1c1c1c;
+  --color-text-secondary: #5f5f5d;
+  --color-text-muted: #8a8a88;
+  --color-text-on-accent: #fcfbf8;
+  --color-border: #eceae4;
+  --color-border-light: #eceae4;
+  --color-border-interactive: rgba(28,28,28,0.15);
+  --color-accent: #2563eb;
+  --color-accent-bg: rgba(59,130,246,0.06);
+  --color-accent-hover: rgba(59,130,246,0.12);
+  --color-error: #ef4444;
+  --color-error-bg: rgba(255,95,86,0.06);
+  --color-error-border: rgba(255,95,86,0.15);
+  --color-success: #16a34a;
+  --color-shadow: rgba(0,0,0,0.08);
+  --color-shadow-sm: rgba(0,0,0,0.03);
+  --color-user-bubble: #1c1c1c;
+  --color-user-text: #fcfbf8;
+  --font-family: "Camera Plain Variable", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: 6px;
+  --radius-full: 9999px;
+}
+
+[data-theme="dark"] {
+  --color-bg: #1a1a1a;
+  --color-surface: #1a1a1a;
+  --color-bg-elevated: #242424;
+  --color-bg-hover: rgba(255,255,255,0.04);
+  --color-bg-active: rgba(255,255,255,0.08);
+  --color-bg-input: #2a2a2a;
+  --color-text: #e8e8e6;
+  --color-text-secondary: #a0a09e;
+  --color-text-muted: #6b6b69;
+  --color-text-on-accent: #fff;
+  --color-border: #333333;
+  --color-border-light: #333333;
+  --color-border-interactive: rgba(255,255,255,0.15);
+  --color-accent: #60a5fa;
+  --color-accent-bg: rgba(96,165,250,0.1);
+  --color-accent-hover: rgba(96,165,250,0.18);
+  --color-error: #f87171;
+  --color-error-bg: rgba(248,113,113,0.1);
+  --color-error-border: rgba(248,113,113,0.2);
+  --color-success: #4ade80;
+  --color-shadow: rgba(0,0,0,0.3);
+  --color-shadow-sm: rgba(0,0,0,0.15);
+  --color-user-bubble: #3b3b3b;
+  --color-user-text: #f0f0ee;
+}

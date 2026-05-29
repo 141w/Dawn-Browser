@@ -16,12 +16,12 @@ const greeting = computed(() => {
 })
 
 const shortcuts = [
-  { name: 'GitHub', url: 'https://github.com', letter: 'Gh', color: '#1c1c1c' },
-  { name: 'Google', url: 'https://www.google.com', letter: 'Go', color: '#1c1c1c' },
-  { name: 'Bilibili', url: 'https://www.bilibili.com', letter: 'Bi', color: '#1c1c1c' },
-  { name: '知乎', url: 'https://www.zhihu.com', letter: '知', color: '#1c1c1c' },
-  { name: 'YouTube', url: 'https://www.youtube.com', letter: 'Yt', color: '#1c1c1c' },
-  { name: 'Twitter', url: 'https://x.com', letter: 'X', color: '#1c1c1c' },
+  { name: 'GitHub', url: 'https://github.com', letter: 'Gh', color: 'var(--color-text)' },
+  { name: 'Google', url: 'https://www.google.com', letter: 'Go', color: 'var(--color-text)' },
+  { name: 'Bilibili', url: 'https://www.bilibili.com', letter: 'Bi', color: 'var(--color-text)' },
+  { name: '知乎', url: 'https://www.zhihu.com', letter: '知', color: 'var(--color-text)' },
+  { name: 'YouTube', url: 'https://www.youtube.com', letter: 'Yt', color: 'var(--color-text)' },
+  { name: 'Twitter', url: 'https://x.com', letter: 'X', color: 'var(--color-text)' },
 ]
 
 function navigateTo(url) {
@@ -104,7 +104,7 @@ const dateStr = computed(() => {
 <style scoped>
 .newtab {
   min-height: 100vh;
-  background: #f7f4ed;
+  background: var(--color-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -126,20 +126,20 @@ const dateStr = computed(() => {
   font-weight: 600;
   letter-spacing: -3px;
   line-height: 1;
-  color: #1c1c1c;
+  color: var(--color-text);
 }
 
 .date {
   font-size: 16px;
   font-weight: 400;
-  color: #5f5f5d;
+  color: var(--color-text-secondary);
   margin-bottom: 16px;
 }
 
 .greeting {
   font-size: 24px;
   font-weight: 400;
-  color: rgba(28, 28, 28, 0.82);
+  color: var(--color-text);
   margin-bottom: 32px;
 }
 
@@ -153,19 +153,19 @@ const dateStr = computed(() => {
   gap: 12px;
   padding: 0 18px;
   height: 48px;
-  background: #f7f4ed;
-  border: 1px solid #eceae4;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
   border-radius: 9999px;
   transition: all 0.2s ease;
 }
 
 .search.focused {
-  border-color: rgba(28, 28, 28, 0.4);
-  box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+  border-color: var(--color-border-interactive);
+  box-shadow: var(--color-shadow) 0px 4px 12px;
 }
 
 .search-icon {
-  color: #8a8a88;
+  color: var(--color-text-muted);
   flex-shrink: 0;
 }
 
@@ -176,12 +176,12 @@ const dateStr = computed(() => {
   outline: none;
   font-size: 16px;
   font-family: inherit;
-  color: #1c1c1c;
+  color: var(--color-text);
   line-height: 1.5;
 }
 
 .search input::placeholder {
-  color: #8a8a88;
+  color: var(--color-text-muted);
 }
 
 .shortcuts {
@@ -197,19 +197,19 @@ const dateStr = computed(() => {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: rgba(28, 28, 28, 0.03);
-  border: 1px solid #eceae4;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.15s;
   font-family: inherit;
-  color: #1c1c1c;
+  color: var(--color-text);
 }
 
 .shortcut:hover {
-  background: rgba(28, 28, 28, 0.06);
-  border-color: rgba(28, 28, 28, 0.4);
-  box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+  background: var(--color-bg-active);
+  border-color: var(--color-border-interactive);
+  box-shadow: var(--color-shadow) 0px 4px 12px;
 }
 
 .shortcut:active {
@@ -225,17 +225,17 @@ const dateStr = computed(() => {
   justify-content: center;
   font-size: 13px;
   font-weight: 600;
-  color: #fcfbf8;
+  color: var(--color-bg-elevated);
   box-shadow:
     rgba(255, 255, 255, 0.2) 0px 0.5px 0px 0px inset,
-    rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px inset,
-    rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+    var(--color-shadow) 0px 0px 0px 0.5px inset,
+    var(--color-shadow-sm) 0px 1px 2px 0px;
   flex-shrink: 0;
 }
 
 .shortcut-name {
   font-size: 14px;
   font-weight: 400;
-  color: rgba(28, 28, 28, 0.82);
+  color: var(--color-text);
 }
 </style>

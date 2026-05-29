@@ -1,10 +1,7 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useSkillSystem } from './useSkillSystem'
 
-const { skills, buildSkillCommandSpecs } = useSkillSystem()
-const skillCommands = buildSkillCommandSpecs(skills.value)
-
-const SLASH_COMMANDS = [
+const BASE_COMMANDS = [
   {
     name: '/summarize',
     description: 'Summarize the current page content',
@@ -138,8 +135,7 @@ const SLASH_COMMANDS = [
     execute: async () => {
       return { type: 'clear' }
     }
-  },
-  ...skillCommands
+  }
 ]
 
 export function useSlashCommands() {
@@ -147,10 +143,19 @@ export function useSlashCommands() {
   const filterText = ref('')
   const selectedIndex = ref(0)
 
+  const { skills, buildSkillCommandSpecs } = useSkillSystem()
+
+  // Dynamically compute all commands including skill commands
+  const allCommands = computed(() => {
+    const skillCmds = buildSkillCommandSpecs(skills.value)
+    return [...BASE_COMMANDS, ...skillCmds]
+  })
+
   function getFilteredCommands(text) {
-    if (!text) return SLASH_COMMANDS
+    const cmds = allCommands.value
+    if (!text) return cmds
     const lower = text.toLowerCase()
-    return SLASH_COMMANDS.filter(c =>
+    return cmds.filter(c =>
       c.name.toLowerCase().includes(lower) || c.description.toLowerCase().includes(lower)
     )
   }
@@ -160,19 +165,19 @@ export function useSlashCommands() {
     if (!trimmed.startsWith('/')) return null
     const spaceIndex = trimmed.indexOf(' ')
     const cmdName = spaceIndex > 0 ? trimmed.substring(0, spaceIndex) : trimmed
-    const cmd = SLASH_COMMANDS.find(c => c.name === cmdName)
+    const cmd = allCommands.value.find(c => c.name === cmdName)
     if (!cmd) return null
     const rest = spaceIndex > 0 ? trimmed.substring(spaceIndex + 1).trim() : ''
     return { command: cmd, rest }
   }
 
   function getAllCommands() {
-    return SLASH_COMMANDS
+    return allCommands.value
   }
 
   function getCommandsByCategory() {
     const cats = {}
-    for (const cmd of SLASH_COMMANDS) {
+    for (const cmd of allCommands.value) {
       if (!cats[cmd.category]) cats[cmd.category] = []
       cats[cmd.category].push(cmd)
     }

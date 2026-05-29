@@ -1,15 +1,33 @@
 import { ref } from 'vue'
 
-/* ── Types ── */
+/* 閳光偓閳光偓 Types 閳光偓閳光偓 */
 // Skill: { name, description, filePath, baseDir, source, disableModelInvocation }
 // SkillEntry: { skill, frontmatter, invocation, metadata }
 
-/* ── State ── */
+/* 閳光偓閳光偓 State 閳光偓閳光偓 */
 const skills = ref([])
 const skillEntries = ref([])
+const allSkillsWithStatus = ref([])
 let _loaded = false
 
-/* ── YAML frontmatter parser ── */
+/* Skill persistence (localStorage) */
+const LS_CUSTOM = 'dawn-custom-skills'
+const LS_DISABLED = 'dawn-disabled-skills'
+
+function loadCustomSkills() {
+  try { return JSON.parse(localStorage.getItem(LS_CUSTOM) || '[]') } catch { return [] }
+}
+function saveCustomSkills(list) {
+  localStorage.setItem(LS_CUSTOM, JSON.stringify(list))
+}
+function loadDisabledSkills() {
+  try { return JSON.parse(localStorage.getItem(LS_DISABLED) || '[]') } catch { return [] }
+}
+function saveDisabledSkills(list) {
+  localStorage.setItem(LS_DISABLED, JSON.stringify(list))
+}
+
+/* 閳光偓閳光偓 YAML frontmatter parser 閳光偓閳光偓 */
 function parseFrontmatterBlock(content) {
   if (!content) return {}
   const trimmed = content.trimStart()
@@ -92,7 +110,7 @@ function parseFrontmatterBlock(content) {
   return result
 }
 
-/* ── Boolean parser ── */
+/* 閳光偓閳光偓 Boolean parser 閳光偓閳光偓 */
 function parseBool(raw, fallback) {
   if (raw === undefined || raw === null || raw === '') return fallback
   const s = String(raw).trim().toLowerCase()
@@ -101,7 +119,7 @@ function parseBool(raw, fallback) {
   return fallback
 }
 
-/* ── Skill invocation policy ── */
+/* 閳光偓閳光偓 Skill invocation policy 閳光偓閳光偓 */
 function resolveInvocationPolicy(frontmatter) {
   return {
     userInvocable: parseBool(frontmatter['user-invocable'], true),
@@ -109,7 +127,7 @@ function resolveInvocationPolicy(frontmatter) {
   }
 }
 
-/* ── Available skills prompt (OpenClaw-compatible XML) ── */
+/* 閳光偓閳光偓 Available skills prompt (OpenClaw-compatible XML) 閳光偓閳光偓 */
 function escapeXml(str) {
   return str
     .replace(/&/g, '&amp;')
@@ -141,7 +159,7 @@ function formatSkillsForPrompt(skillsList) {
   return lines.join('\n')
 }
 
-/* ── Build slash command specs ── */
+/* 閳光偓閳光偓 Build slash command specs 閳光偓閳光偓 */
 function buildSkillCommandSpecs(skillsList) {
   const commands = []
   for (const skill of skillsList) {
@@ -169,7 +187,58 @@ function buildSkillCommandSpecs(skillsList) {
   return commands
 }
 
-/* ── Load skills from SKILL.md files ── */
+/* Skill management */
+function isCustomSkill(name) {
+  return loadCustomSkills().some(s => s.name === name)
+}
+
+function toggleSkill(name) {
+  const disabled = loadDisabledSkills()
+  const idx = disabled.indexOf(name)
+  if (idx >= 0) disabled.splice(idx, 1)
+  else disabled.push(name)
+  saveDisabledSkills(disabled)
+  _loaded = false
+  loadSkills()
+}
+
+function addCustomSkill(name, description, content) {
+  if (!name || !description || !content) return false
+  const custom = loadCustomSkills()
+  if (custom.some(s => s.name === name)) return false
+  if (skills.value.some(s => s.name === name)) return false
+  custom.push({ name, description, content, createdAt: Date.now() })
+  saveCustomSkills(custom)
+  _loaded = false
+  loadSkills()
+  return true
+}
+
+function deleteCustomSkill(name) {
+  const custom = loadCustomSkills()
+  const filtered = custom.filter(s => s.name !== name)
+  if (filtered.length === custom.length) return false
+  saveCustomSkills(filtered)
+  const disabled = loadDisabledSkills().filter(n => n !== name)
+  saveDisabledSkills(disabled)
+  _loaded = false
+  loadSkills()
+  return true
+}
+
+function updateCustomSkill(name, description, content) {
+  const custom = loadCustomSkills()
+  const skill = custom.find(s => s.name === name)
+  if (!skill) return false
+  if (description) skill.description = description
+  if (content) skill.content = content
+  saveCustomSkills(custom)
+  _loaded = false
+  loadSkills()
+  return true
+}
+
+/* 閳光偓閳光偓 Load skills from SKILL.md files 閳光偓閳光偓 */
 async function loadSkills() {
   if (_loaded) return
   _loaded = true
@@ -216,28 +285,84 @@ async function loadSkills() {
     }
   }
 
+  // Load installed skills from main process via IPC
+  try {
+    if (typeof window !== 'undefined' && window.electronAPI?.skillList) {
+      const installed = await window.electronAPI.skillList()
+      for (const sk of installed) {
+        if (!entries.some(e => e.skill.name === sk.name)) {
+          entries.push({
+            skill: { ...sk, source: 'installed' },
+            frontmatter: {},
+            invocation: { userInvocable: true, disableModelInvocation: false },
+            metadata: null
+          })
+        }
+      }
+    }
+  } catch (e) { console.warn('[SkillSystem] Failed to load installed skills:', e.message) }
+
   // Sort alphabetically
   entries.sort((a, b) => a.skill.name.localeCompare(b.skill.name))
+
+    // Load custom skills from localStorage
+  const customList = loadCustomSkills()
+  for (const cs of customList) {
+    entries.push({
+      skill: {
+        name: cs.name,
+        description: cs.description,
+        filePath: '(custom)',
+        baseDir: '',
+        source: 'custom',
+        disableModelInvocation: false,
+        _content: cs.content
+      },
+      frontmatter: {},
+      invocation: { userInvocable: true, disableModelInvocation: false },
+      metadata: null
+    })
+  }
+
+  // Sort alphabetically
+  entries.sort((a, b) => a.skill.name.localeCompare(b.skill.name))
+
+  const disabledNames = loadDisabledSkills()
 
   skillEntries.value = entries
   skills.value = entries.map(e => e.skill)
 
+
+  allSkillsWithStatus.value = entries.map(e => ({
+    name: e.skill.name,
+    description: e.skill.description,
+    source: e.skill.source,
+    enabled: !disabledNames.includes(e.skill.name),
+    content: e.skill._content || null
+  }))
+
   console.log(
-    '[SkillSystem] Loaded ' + skills.value.length + ' skills:',
-    skills.value.map(s => s.name).join(', ')
+    "[SkillSystem] Loaded " + skills.value.length + " skills:",
+    skills.value.map(s => s.name).join(", ")
   )
 
   return skills.value
-}
+}function refreshSkills() { _loaded = false; loadSkills() }
 
-/* ── Public API ── */
 export function useSkillSystem() {
   loadSkills()
 
   return {
     skills,
     skillEntries,
+    allSkillsWithStatus,
     loadSkills,
+    refreshSkills,
+    toggleSkill,
+    addCustomSkill,
+    deleteCustomSkill,
+    updateCustomSkill,
+    isCustomSkill,
     formatSkillsForPrompt,
     buildSkillCommandSpecs,
     parseFrontmatterBlock

@@ -13,13 +13,7 @@ function getPluginDir() {
 async function scanBuiltinPlugins() {
   // All builtin plugins removed — will be re-added with unified rules
   const builtinPlugins = []
-  const _disabled = [
-    {
-      name: 'academic-assistant',
-      title: 'Academic Assistant',
-      version: '1.0.0',
-      description: 'Paper abstract extraction, translation, and citation formatting',
-      permissions: ['page-read'],
+  const _disabled = [],
       tools: [
         {
           name: 'extract_paper_info',

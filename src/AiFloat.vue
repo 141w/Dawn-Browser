@@ -52,10 +52,10 @@ function onMaximize() {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f7f4ed;
+  background: var(--color-bg);
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: rgba(0,0,0,0.15) 0px 8px 40px;
+  box-shadow: var(--color-shadow) 0px 8px 40px;
 }
 
 .ai-float-header {
@@ -64,8 +64,8 @@ function onMaximize() {
   gap: 10px;
   padding: 8px 12px;
   flex-shrink: 0;
-  border-bottom: 1px solid #eceae4;
-  background: #f7f4ed;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 
 .ai-float-dots {
@@ -84,7 +84,7 @@ function onMaximize() {
 .ai-float-title {
   font-size: 12px;
   font-weight: 600;
-  color: #5f5f5d;
+  color: var(--color-text-secondary);
 }
 
 .ai-float-body {

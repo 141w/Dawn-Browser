@@ -27,6 +27,6 @@ const { contextRefs, removeContextRef } = useContextRef()
 }
 .acb-chip:hover { background: rgba(255,95,86,0.08); border-color: rgba(255,95,86,0.2); }
 .acb-chip-icon { font-size: 11px; flex-shrink: 0; }
-.acb-chip-label { font-weight: 600; color: #1c1c1c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acb-chip-x { font-size: 12px; color: #8a8a88; flex-shrink: 0; }
+.acb-chip-label { font-weight: 600; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acb-chip-x { font-size: 12px; color: var(--color-text-muted); flex-shrink: 0; }
 </style>

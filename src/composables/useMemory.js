@@ -1,10 +1,13 @@
 const DB_NAME = 'dawn-ai-memory'
 const DB_VERSION = 3
 
+let _dbPromise = null
+
 function openDB() {
-  return new Promise((resolve, reject) => {
+  if (_dbPromise) return _dbPromise
+  _dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onerror = () => reject(request.error)
+    request.onerror = () => { _dbPromise = null; reject(request.error) }
     request.onsuccess = () => resolve(request.result)
     request.onupgradeneeded = (event) => {
       const db = event.target.result
@@ -49,11 +52,9 @@ function storeOp(storeName, mode) {
       const store = tx.objectStore(storeName)
       const result = callback(store)
       tx.oncomplete = () => {
-        db.close()
         resolve(result)
       }
       tx.onerror = () => {
-        db.close()
         reject(tx.error)
       }
     })
@@ -76,17 +77,12 @@ export async function loadConversationsFromDB() {
 
 export async function saveConversationsToDB(conversations) {
   try {
-    // Clear and put in separate transactions to avoid partial-failure issues
     await storeOp('conversations', 'readwrite')((store) => {
       store.clear()
+      for (const conv of conversations) {
+        try { store.put(conv) } catch {}
+      }
     })
-    if (conversations.length > 0) {
-      await storeOp('conversations', 'readwrite')((store) => {
-        for (const conv of conversations) {
-          try { store.put(conv) } catch {}
-        }
-      })
-    }
   } catch (e) {
     console.error('[Memory] Failed to save conversations:', e)
   }
@@ -252,7 +248,7 @@ export async function getStorageStats() {
         req.onerror = () => resolve(0)
       })
     }
-    db.close()
+    // db connection is cached, don't close
     stats.totalSize = JSON.stringify(stats).length
     return stats
   } catch {

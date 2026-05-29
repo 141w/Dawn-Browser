@@ -1,10 +1,13 @@
 import { ref } from 'vue'
+import { callAI, parseAIJson } from './useAiHelper'
 import { useAiConfig } from './useAiConfig'
+import { storeApi } from './useStore'
 
 const tabGroups = ref([])
 const tabSidebarOpen = ref(false)
 const isAiGrouping = ref(false)
 const aiGroupError = ref(null)
+let _storeSynced = false
 
 const PRESET_CATEGORIES = [
   { key: 'dev', label: '开发文档', patterns: ['github.com', 'gitlab.com', 'stackoverflow.com', 'docs.', 'api.', 'npmjs.com'] },
@@ -16,15 +19,37 @@ const PRESET_CATEGORIES = [
   { key: 'email', label: '邮件', patterns: ['mail.google.com', 'outlook', 'webmail', 'gmail'] },
 ]
 
+function _initStoreSync() {
+  if (_storeSynced) return
+  _storeSynced = true
+  storeApi.onStoreChange('tabGroups', (value) => {
+    if (Array.isArray(value)) tabGroups.value = value
+  })
+}
+
+async function _syncToStore() {
+  await storeApi.set('tabGroups', tabGroups.value)
+}
+
 function loadTabGroups() {
-  const saved = localStorage.getItem('dawn-tab-groups')
-  tabGroups.value = saved ? JSON.parse(saved) : []
+  _initStoreSync()
+  // Prefer store data (cross-window), fall back to localStorage
+  storeApi.get('tabGroups').then(stored => {
+    if (Array.isArray(stored) && stored.length > 0) {
+      tabGroups.value = stored
+    } else {
+      const saved = localStorage.getItem('dawn-tab-groups')
+      tabGroups.value = saved ? JSON.parse(saved) : []
+      if (tabGroups.value.length > 0) _syncToStore()
+    }
+  })
   const savedSidebar = localStorage.getItem('dawn-tab-sidebar-open')
   tabSidebarOpen.value = savedSidebar != null ? savedSidebar === 'true' : true
 }
 
 function saveTabGroups() {
   localStorage.setItem('dawn-tab-groups', JSON.stringify(tabGroups.value))
+  _syncToStore()
 }
 
 function classifyTab(title, url) {
@@ -103,108 +128,18 @@ async function aiGroupTabs(tabs) {
   aiGroupError.value = null
 
   try {
-    const { config, getEffectiveModel, getEffectiveBaseUrl, getApiFormat, getProvider } = useAiConfig()
+    const { config, getEffectiveModel, getEffectiveBaseUrl, getApiFormat } = useAiConfig()
     const apiKey = config.value.apiKey
-    if (!apiKey) throw new Error('请先在设置中配置 AI API Key')
+    if (!apiKey) throw new Error('API Key not configured')
 
     const format = getApiFormat()
     const model = getEffectiveModel()
     const baseUrl = getEffectiveBaseUrl()
-    const provider = getProvider()
 
-    // Only include web tabs (not dawn:// internal pages)
-    const webTabs = tabs.filter(t => t.url && !t.url.startsWith('dawn://'))
-    if (webTabs.length < 2) {
-      // Too few tabs — fall back to pattern grouping
-      return autoGroupTabs(tabs)
-    }
+    const content = await callAI(systemPrompt, userPrompt, { format, model, baseUrl, maxTokens: 1024, temperature: 0.2 })
 
-    const tabList = webTabs.map((t, i) =>
-      `${i + 1}. ${(t.title || 'Untitled').slice(0, 60)} — ${t.url}`
-    ).join('\n')
-
-    const systemPrompt = `You are a browser tab organizer. Given a list of open tabs (with titles and URLs), group them into 3–6 meaningful, concise categories. Return ONLY valid JSON — no explanation, no markdown, no code fences.
-
-The JSON must be exactly:
-{"groups":[{"name":"Category","tabIndices":[1,3,5]},{"name":"Another","tabIndices":[2,4]}]}
-
-Rules:
-- Every tab index must appear in exactly one group
-- Keep category names short (1–4 Chinese characters if the tab titles are in Chinese, otherwise English)
-- Group by actual topic/domain, not just TLD
-- If a tab doesn't fit anywhere, put it in "其他"`
-
-    const userPrompt = `Group these ${webTabs.length} tabs:\n\n${tabList}`
-
-    let content = ''
-
-    if (format === 'anthropic') {
-      let url = baseUrl.replace(/\/+$/, '')
-      if (!url.endsWith('/messages')) url += '/messages'
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userPrompt }],
-          max_tokens: 1024,
-          temperature: 0.2
-        })
-      })
-      if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`)
-      const data = await resp.json()
-      content = data.content?.[0]?.text || ''
-    } else if (format === 'google') {
-      const url = `${baseUrl.replace(/\/+$/, '')}/models/${model}:generateContent?key=${apiKey}`
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig: { maxOutputTokens: 1024, temperature: 0.2 }
-        })
-      })
-      if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`)
-      const data = await resp.json()
-      content = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-    } else {
-      // OpenAI / DeepSeek / compatible
-      let url = baseUrl.replace(/\/+$/, '')
-      if (!url.endsWith('/chat/completions')) url += '/chat/completions'
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          max_tokens: 1024,
-          temperature: 0.2,
-          stream: false
-        })
-      })
-      if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text()}`)
-      const data = await resp.json()
-      content = data.choices?.[0]?.message?.content || ''
-    }
-
-    // Extract JSON — the model might wrap it in ```json ... ``` or just return raw JSON
-    let jsonStr = content.trim()
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (fenceMatch) jsonStr = fenceMatch[1].trim()
-    const json = JSON.parse(jsonStr)
+    // Extract JSON - the model might wrap it in `json ... ` or just return raw JSON
+    const json = parseAIJson(content)
 
     if (!json.groups || !Array.isArray(json.groups)) {
       throw new Error('AI response missing groups array')
@@ -262,6 +197,14 @@ function getGroupSummary(groupId, tabs) {
   }
 }
 
+function getUngroupedTabs(tabs) {
+  const groupedIds = new Set()
+  for (const g of tabGroups.value) {
+    for (const id of g.tabIds) groupedIds.add(id)
+  }
+  return tabs.filter(t => !groupedIds.has(t.id))
+}
+
 function toggleSidebar() {
   tabSidebarOpen.value = !tabSidebarOpen.value
   localStorage.setItem('dawn-tab-sidebar-open', tabSidebarOpen.value.toString())
@@ -272,7 +215,7 @@ export function useTabGroups() {
   return {
     tabGroups, tabSidebarOpen, isAiGrouping, aiGroupError, PRESET_CATEGORIES,
     classifyTab, createGroup, renameGroup, deleteGroup, addTabToGroup, removeTabFromGroup,
-    autoGroupTabs, aiGroupTabs, getGroupSummary, toggleSidebar,
+    autoGroupTabs, aiGroupTabs, getGroupSummary, getUngroupedTabs, toggleSidebar,
     loadTabGroups, saveTabGroups,
   }
 }
