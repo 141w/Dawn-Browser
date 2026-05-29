@@ -338,13 +338,13 @@ class DawnWindow {
         }})
         template.push({ label: "复制", role: "copy" })
         template.push({ type: "separator" })
-        template.push({ label: "🤖 AI 翻译", click: () => {
+        template.push({ label: "AI 翻译", click: () => {
           self.win.webContents.send("context-ai-action", { action: "translate", text: params.selectionText, pageUrl: currentUrl })
         }})
-        template.push({ label: "🤖 AI 解释", click: () => {
+        template.push({ label: "AI 解释", click: () => {
           self.win.webContents.send("context-ai-action", { action: "explain", text: params.selectionText, pageUrl: currentUrl })
         }})
-        template.push({ label: "🤖 AI 总结", click: () => {
+        template.push({ label: "AI 总结", click: () => {
           self.win.webContents.send("context-ai-action", { action: "summarize", text: params.selectionText, pageUrl: currentUrl })
         }})
       }
