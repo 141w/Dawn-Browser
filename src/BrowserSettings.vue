@@ -404,8 +404,6 @@ onMounted(applyAppearance)
             </select>
           </div>
         </div>
-      </div>
-
         <!-- Context Menu AI Actions -->
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
           <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('bs.ctxMenuTitle') || '右键菜单 AI 功能' }}</div>
@@ -436,6 +434,8 @@ onMounted(applyAppearance)
             <button class="bs-mcp-btn" @click="addCtxAction" :disabled="!ctxNewName.trim() || !ctxNewPrompt.trim()">添加</button>
           </div>
         </div>
+      </div>
+
 
       <!-- MCP Tab -->
       <div v-if="activeTab === 'mcp'" class="bs-section">
