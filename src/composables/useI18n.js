@@ -6,13 +6,6 @@ const { config } = useAiConfig()
 // Ensure lang field exists on config
 if (!config.value.lang) {
   config.value.lang = 'zh'
-  'chat.sendToSave': '发送消息后自动保存',
-  'chat.savedModels': '已保存的模型',
-  'chat.customModels': '自定义模型',
-  'chat.chatMode': 'Chat 模式：纯对话',
-  'chat.agentMode': 'Agent 模式：可以调用工具执行操作',
-  'chat.more': '更多',
-  'chat.deleteModel': '删除模型',
 }
 
 const currentLang = computed(() => config.value.lang || 'zh')
@@ -304,6 +297,15 @@ const messages = {
     'tool.error.emptyName': '工具名为空——模型可能生成了格式错误的函数调用',
     'tool.error.unknown': '未知工具',
     'tool.error.disabled': '工具已禁用',
+
+    // Chat
+    'chat.agentMode': 'Agent 模式：可以调用工具执行操作',
+    'chat.chatMode': 'Chat 模式：纯对话',
+    'chat.customModels': '自定义模型',
+    'chat.savedModels': '已保存的模型',
+    'chat.sendToSave': '发送消息后自动保存',
+    'chat.more': '更多',
+    'chat.deleteModel': '删除模型',
   },
 
   en: {
@@ -592,17 +594,19 @@ const messages = {
     'tool.error.emptyName': 'Tool name empty — model may have generated malformed call',
     'tool.error.unknown': 'Unknown tool',
     'tool.error.disabled': 'Tool disabled',
-    'chat.sendToSave': 'Auto-saved after sending',
-    'chat.savedModels': 'Saved Models',
-    'chat.customModels': 'Custom Models',
-    'chat.chatMode': 'Chat mode: text only',
+
+    // Chat
     'chat.agentMode': 'Agent mode: can use tools',
+    'chat.chatMode': 'Chat mode: text only',
+    'chat.customModels': 'Custom Models',
+    'chat.savedModels': 'Saved Models',
+    'chat.sendToSave': 'Auto-saved after sending',
+    'chat.more': 'More',
+    'chat.deleteModel': 'Delete model',
   }
 }
 
 export function t(key) {
-    'chat.more': 'More',
-    'chat.deleteModel': 'Delete model',
   const lang = currentLang.value
   return messages[lang]?.[key] || messages.en[key] || key
 }
