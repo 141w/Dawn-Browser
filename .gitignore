@@ -35,7 +35,6 @@ release/
 # All markdown except README.md
 *.md
 !README.md
-!AGENTS.md
 
 # Temp / cleanup
 _cleanup/

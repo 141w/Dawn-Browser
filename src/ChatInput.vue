@@ -28,7 +28,7 @@ const showModelMenu = ref(false)
 const showMoreMenu = ref(false)
 const slashChip = ref(null) // { name, label, description, execute }
 
-/* ── Saved models ── */
+/* 闁冲厜鍋撻柍鍏夊亾 Saved models 闁冲厜鍋撻柍鍏夊亾 */
 function loadSavedModels() {
   try { return JSON.parse(localStorage.getItem('dawn-saved-models') || '[]') } catch { return [] }
 }
@@ -59,7 +59,20 @@ function selectSavedModel(entry) {
   showModelMenu.value = false
 }
 
-/* ── Auto-resize ── */
+const customModels = computed(() => {
+  const saved = config.value.customModels
+  if (Array.isArray(saved)) return saved
+  if (config.value.customModel) return [config.value.customModel]
+  return []
+})
+
+function selectCustomModel(m) {
+  config.value.customModel = m
+  config.value.model = m
+  showModelMenu.value = false
+}
+
+/* 闁冲厜鍋撻柍鍏夊亾 Auto-resize 闁冲厜鍋撻柍鍏夊亾 */
 function autoResize() {
   nextTick(() => {
     const el = textareaEl.value
@@ -115,7 +128,7 @@ async function insertRef(refItem) {
     } else if (refItem.type === 'file') {
       // Reference an open document tab
       addContextRef('tab', {
-        label: '📄 ' + (refItem.title || refItem.label || 'Document').slice(0, 40),
+        label: '妫ｅ啯鎯?' + (refItem.title || refItem.label || 'Document').slice(0, 40),
         preview: refItem.url,
         url: refItem.url,
         tabId: refItem.id,
@@ -266,7 +279,7 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
       <div class="ci-bar">
         <div class="ci-bar-left">
           <!-- Agent/Chat toggle -->
-          <button class="ci-agent-toggle" :class="{ active: agentMode }" @click="toggleAgentMode" :title="agentMode ? 'Agent 模式：AI 可操控浏览器' : 'Chat 模式：纯对话'">
+          <button class="ci-agent-toggle" :class="{ active: agentMode }" @click="toggleAgentMode" :title="agentMode ? 'Agent 婵☆垪鈧磭纭€闁挎稒顑婭 闁告瑯鍨遍幖鐑藉箳瑜庣粊鑽ゆ喆閸繃鐝? : 'Chat 婵☆垪鈧磭纭€闁挎稒姘ㄩ崙鐣屸偓鐢殿攰閻?">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             <span>{{ agentMode ? 'Agent' : 'Chat' }}</span>
           </button>
@@ -299,17 +312,17 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
 
           <!-- More button -->
           <div class="ci-drop-wrap">
-            <button class="ci-icon-btn" @click.stop="showMoreMenu=!showMoreMenu; showSlashPanel=false; showRefPicker=false; showModelMenu=false" title="更多">
+            <button class="ci-icon-btn" @click.stop="showMoreMenu=!showMoreMenu; showSlashPanel=false; showRefPicker=false; showModelMenu=false" title="闁哄洦娼欓ˇ?>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><line x1="8" y1="12" x2="21" y2="12"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
             </button>
             <div v-if="showMoreMenu" class="ci-dropdown" @click.stop>
               <div class="ci-drop-item" @click="showMoreMenu=false; inputMsg=inputMsg+'\n[Attach page]'; autoResize()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-                <span>附加页面</span>
+                <span>闂傚嫬瀚慨鐐淬亜閻㈠憡妗?/span>
               </div>
               <div class="ci-drop-item" @click="showMoreMenu=false">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                <span>截图发送</span>
+                <span>闁规惌浜滃ù姗€宕ｉ幋锔瑰亾?/span>
               </div>
             </div>
           </div>
@@ -320,16 +333,16 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
           <!-- Model chip -->
           <div class="ci-drop-wrap">
             <button class="ci-model-chip" @click.stop="showModelMenu=!showModelMenu; showSlashPanel=false; showRefPicker=false; showMoreMenu=false">
-              <span class="ci-model-chip-label">{{ config.model || 'gpt-4o-mini' }}</span>
+              <span class="ci-model-chip-label">{{ config.customModel || config.model || 'gpt-4o-mini' }}</span>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             </button>
             <div v-if="showModelMenu" class="ci-dropdown ci-dropdown-right" @click.stop>
-              <div class="ci-drop-head">已保存的模型</div>
-              <div v-if="savedModels.length === 0" class="ci-drop-empty">发送消息后自动保存</div>
+              <div class="ci-drop-head">鐎规瓕寮撶换姘扁偓娑欘焽濞堟垵螣閳ュ磭鈧?/div>
+              <div v-if="savedModels.length === 0" class="ci-drop-empty">闁告瑦鍨块埀顑跨劍缁夌兘骞侀姘€甸柤濂変簻婵晜绌卞┑鍡欐憼</div>
               <div v-for="(m,idx) in savedModels" :key="idx" class="ci-drop-item" @click="selectSavedModel(m)">
                 <span class="ci-drop-name">{{ m.model }}</span>
                 <span class="ci-drop-desc">{{ m.providerName }}</span>
-                <button class="ci-drop-del" @click.stop="removeSavedModel(idx)" title="删除">
+                <button class="ci-drop-del" @click.stop="removeSavedModel(idx)" title="闁告帞濞€濞?>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>
