@@ -113,13 +113,9 @@ function getContextActions() {
 }
 function addCtxAction() {
   if (!ctxNewName.value.trim() || !ctxNewPrompt.value.trim()) return
-  if (!config.value.contextMenuActions) config.value.contextMenuActions = []
-  config.value.contextMenuActions.push({
-    id: 'custom_' + Date.now(),
-    name: ctxNewName.value.trim(),
-    prompt: ctxNewPrompt.value.trim(),
-    enabled: true
-  })
+  const list = [...(config.value.contextMenuActions || [])]
+  list.push({ id: 'custom_' + Date.now(), name: ctxNewName.value.trim(), prompt: ctxNewPrompt.value.trim(), enabled: true })
+  config.value.contextMenuActions = list
   ctxNewName.value = ''
   ctxNewPrompt.value = ''
 }
@@ -127,19 +123,16 @@ function removeCtxAction(id) {
   config.value.contextMenuActions = (config.value.contextMenuActions || []).filter(a => a.id !== id)
 }
 function toggleCtxAction(id) {
-  const action = (config.value.contextMenuActions || []).find(a => a.id === id)
-  if (action) action.enabled = !action.enabled
+  config.value.contextMenuActions = (config.value.contextMenuActions || []).map(a => a.id === id ? { ...a, enabled: !a.enabled } : a)
 }
 function moveCtxAction(id, dir) {
-  const actions = config.value.contextMenuActions || []
+  const actions = [...(config.value.contextMenuActions || [])]
   const idx = actions.findIndex(a => a.id === id)
   if (idx < 0) return
   const newIdx = idx + dir
   if (newIdx < 0 || newIdx >= actions.length) return
-  const tmp = actions[idx]
-  actions[idx] = actions[newIdx]
-  actions[newIdx] = tmp
-  config.value.contextMenuActions = [...actions]
+  ;[actions[idx], actions[newIdx]] = [actions[newIdx], actions[idx]]
+  config.value.contextMenuActions = actions
 }
 
 function removeCustomModel(m) {

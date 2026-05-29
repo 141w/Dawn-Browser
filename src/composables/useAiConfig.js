@@ -111,16 +111,19 @@ function loadConfig() {
     ]
   }
   config.value = saved ? { ...defaults, ...JSON.parse(saved) } : defaults
+  // Sync context menu actions to store on load
+  try { window.electronAPI?.storeSet?.('contextMenuActions', config.value.contextMenuActions || []) } catch {}
   return config
 }
 
 function saveConfig() {
   if (!config.value) return
   localStorage.setItem('dawn-ai-config', JSON.stringify(config.value))
-  // Sync context menu actions to main process store
-  if (config.value.contextMenuActions) {
-    try { window.electronAPI?.storeSet?.('contextMenuActions', config.value.contextMenuActions) } catch {}
-  }
+  // Sync context menu actions to main process store (always, not conditional)
+  try {
+    const actions = config.value.contextMenuActions || []
+    window.electronAPI?.storeSet?.('contextMenuActions', JSON.parse(JSON.stringify(actions)))
+  } catch {}
 }
 
 function getProvider() {
