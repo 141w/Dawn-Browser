@@ -15,6 +15,7 @@ const { registerScriptRunnerIpc } = require('./script-runner.cjs')
 const { registerAgentMemoryIpc, closeDb } = require('./agent-memory.cjs')
 const { registerTaskSchedulerIpc } = require('./task-scheduler.cjs')
 const { registerSkillIpc } = require('./skill-manager.cjs')
+const { registerPluginIpc } = require('./plugin-manager.cjs')
 
 /* ── Global download state (shared across all windows) ── */
 global.__downloads = new Map()
@@ -466,6 +467,7 @@ app.whenReady().then(async () => {
   registerMcpIpc()
   registerScriptRunnerIpc()
   registerAgentMemoryIpc()
+  registerPluginIpc()
   registerTaskSchedulerIpc()
   registerSkillIpc()
   const dw = createNewDawnWindow()

@@ -16,6 +16,7 @@ const { config, providers } = useAiConfig()
 const { agentMode, toggleAgentMode } = useAiChat()
 const { getOpenPageRefs } = useBrowserTabs()
 
+const { isListening, listeningTranscript, listeningInterim, toggleListening, isListeningSupported } = useVoice()
 const inputMsg = ref('')
 const textareaEl = ref(null)
 const showSlashPanel = ref(false)
@@ -271,7 +272,8 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
             <span class="ci-chip-x">&times;</span>
           </span>
         </div>
-        <textarea ref="textareaEl" v-model="inputMsg" @keydown="onKeydown" @input="onInput"
+        <div v-if="isListening" style="font-size:11px;color:var(--color-error);padding:2px 8px;">Listening... {{ listeningInterim }}</div>
+<textarea ref="textareaEl" v-model="inputMsg" @keydown="onKeydown" @input="onInput"
           :placeholder="t('ai.placeholder')" rows="2" :disabled="props.isStreaming" class="ci-textarea"></textarea>
       </div>
 
@@ -349,6 +351,10 @@ function closeAll() { showSlashPanel.value=false; showRefPicker.value=false; sho
             </div>
           </div>
 
+          <!-- Voice Input -->
+          <button v-if="isListeningSupported()" class="ci-icon-btn" :class="{ active: isListening }" @click="toggleListening()" :title="isListening ? 'Stop' : 'Voice'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="isListening ? '#ef4444' : 'currentColor'" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+          </button>
           <!-- Send -->
           <button v-if="props.isStreaming" class="ci-send stop" @click="emit('stop')">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>

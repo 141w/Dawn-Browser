@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAiConfig } from './composables/useAiConfig'
 import { useAiChat } from './composables/useAiChat'
@@ -49,6 +49,7 @@ hljs.registerLanguage('md', markdown)
 
 mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
 import { t } from './composables/useI18n'
+import { useVoice } from './composables/useVoice'
 import { formatError } from './composables/useErrorFormat'
 import ChatInput from './ChatInput.vue'
 
@@ -60,6 +61,7 @@ const { getFilteredCommands, matchCommand, getAllCommands, getCommandsByCategory
 const { activePlan, getPlanSummary } = useAgentLoop()
 const { contextStats } = useContextManager()
 const { pageHints, analyzePage, addSmartBookmark } = useProactiveAI()
+const { speak, stopSpeaking, isSpeaking } = useVoice()
 
 const activeConv = getActiveConversation()
 const messagesEl = ref(null)
@@ -72,6 +74,8 @@ const showSummaryPanel = ref(false)
 const showFormTemplates = ref(false)
 const translationResult = ref(null)
 const showTranslation = ref(false)
+const showExportMenu = ref(false)
+const convContextMenu = ref(null)
 
 /* ── Chat send handler ── */
 function handleChatSend(finalMsg, slashCmd, displayMsg) {
@@ -315,7 +319,9 @@ onBeforeUnmount(() => { if (metaInterval) clearInterval(metaInterval) })
             </details>
             <div v-if="msg.content" class="ai-msg-content mk-body" v-html="renderMarkdown(msg.content)"></div>
             <div v-if="msg.content && i === activeConv?.messages?.length - 1" class="ai-msg-actions">
-              <button class="ai-msg-action-btn" @click="doRegenerate" :disabled="isStreaming" :title="t('msg.regenerate')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg></button>
+              <button class="ai-msg-action-btn" @click="isSpeaking ? stopSpeaking() : speak(msg.content)" :title="isSpeaking ? 'Stop' : t('voice.speak')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
+<button class="ai-msg-action-btn" @click="isSpeaking ? stopSpeaking() : speak(msg.content)" :title="isSpeaking ? 'Stop' : 'Read'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
+<button class="ai-msg-action-btn" @click="doRegenerate" :disabled="isStreaming" :title="t('msg.regenerate')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg></button>
               <button class="ai-msg-action-btn" @click="doBranch(i)" :title="t('msg.branch')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
               <button v-if="msg.content" class="ai-msg-action-btn" @click="showTranslationCompare" :title="t('ai.compare')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg></button>
             </div>

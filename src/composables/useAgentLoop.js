@@ -170,6 +170,130 @@ function getPlanToolDefinition() {
   }
 }
 
+
+
+// Sub-Agent Engine
+// Provides spawnSubAgent() which creates a mini agent loop with limited tools
+let _subAgentDepth = 0
+const MAX_SUB_AGENT_DEPTH = 1
+
+async function spawnSubAgent(task, allowedTools, maxRounds, streamFn, cfg) {
+  if (_subAgentDepth >= MAX_SUB_AGENT_DEPTH) {
+    return { error: 'Sub-agent recursion limit reached', summary: '' }
+  }
+  _subAgentDepth++
+
+  try {
+    const { useToolSystem } = await import('./useToolSystem')
+    const { getTool, executeTool } = useToolSystem()
+
+    // Build sub-agent system prompt
+    const systemPrompt = 'You are a focused sub-agent. Complete the assigned task efficiently using the available tools. When done, provide a clear and concise summary of your findings. Do not ask questions - just execute and report.'
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: task }
+    ]
+
+    let totalToolCalls = 0
+
+    for (let round = 0; round < maxRounds; round++) {
+      const assistantMsg = { role: 'assistant', content: '', toolCalls: [] }
+      messages.push(assistantMsg)
+
+      // Build API messages
+      const apiMessages = [{ role: 'system', content: systemPrompt }]
+      for (const m of messages.slice(1)) {
+        if (m.role === 'user') {
+          apiMessages.push({ role: 'user', content: m.content })
+        } else if (m.role === 'assistant') {
+          if (m.toolCalls && m.toolCalls.length > 0) {
+            apiMessages.push({ role: 'assistant', content: m.content || null, tool_calls: m.toolCalls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments) } })) })
+          } else if (m.content) {
+            apiMessages.push({ role: 'assistant', content: m.content })
+          }
+        } else if (m.role === 'tool') {
+          apiMessages.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content })
+        }
+      }
+
+      // Prepare tools for sub-agent
+      const subTools = allowedTools.map(name => {
+        const tool = getTool(name)
+        if (!tool) return null
+        return { type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters || { type: 'object', properties: {} } } }
+      }).filter(Boolean)
+
+      // Call streaming
+      const baseUrl = (cfg.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
+      const url = baseUrl + '/chat/completions'
+      const headers = { 'Content-Type': 'application/json' }
+      if (cfg.apiKey) headers['Authorization'] = 'Bearer ' + cfg.apiKey
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: cfg.model || 'gpt-4o-mini',
+          messages: apiMessages,
+          tools: subTools.length > 0 ? subTools : undefined,
+          temperature: 0.3,
+          max_tokens: 2048
+        })
+      })
+
+      if (!response.ok) {
+        const err = await response.text()
+        throw new Error('Sub-agent API error: ' + response.status + ' ' + err.substring(0, 200))
+      }
+
+      const data = await response.json()
+      const choice = data.choices?.[0]
+      if (!choice) break
+
+      assistantMsg.content = choice.message?.content || ''
+
+      const toolCalls = choice.message?.tool_calls || []
+      if (toolCalls.length === 0) break
+
+      assistantMsg.toolCalls = toolCalls.map(tc => ({ id: tc.id, name: tc.function?.name, arguments: tc.function?.arguments }))
+
+      // Execute tool calls
+      for (const tc of toolCalls) {
+        let args = {}
+        try { args = JSON.parse(tc.function?.arguments || '{}') } catch {}
+        const result = await executeTool(tc.function?.name, args)
+        const raw = result.error || (typeof result.result === 'object' ? JSON.stringify(result.result) : String(result.result ?? ''))
+        messages.push({ role: 'tool', toolCallId: tc.id, name: tc.function?.name, content: raw.substring(0, 3000) })
+        totalToolCalls++
+      }
+    }
+
+    // Extract final summary
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant' && m.content)
+    const summary = lastAssistant?.content || 'Sub-agent completed with no output.'
+
+    return {
+      summary: summary.substring(0, 2000),
+      toolCallsCount: totalToolCalls,
+      roundsUsed: Math.min(maxRounds, messages.filter(m => m.role === 'assistant').length)
+    }
+  } catch (e) {
+    return { error: e.message, summary: 'Sub-agent failed: ' + e.message }
+  } finally {
+    _subAgentDepth--
+  }
+}
+
+// Expose to window for tool system access
+if (typeof window !== 'undefined') {
+  window.__dawnSubAgent = (task, tools, maxRounds) => {
+    // Import config dynamically to avoid circular deps
+    const cfg = JSON.parse(localStorage.getItem('dawn-ai-config') || '{}')
+    return spawnSubAgent(task, tools, maxRounds, null, cfg)
+  }
+}
+
 export function useAgentLoop() {
   return {
     activePlan,

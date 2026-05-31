@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, nextTick, watch } from 'vue'
 import ChatInput from './ChatInput.vue'
 import { useAiChat } from './composables/useAiChat'
@@ -6,6 +6,7 @@ import { useAgentLoop } from './composables/useAgentLoop'
 import { renderMarkdown } from './composables/useMarkdown'
 import { formatError } from './composables/useErrorFormat'
 import { t } from './composables/useI18n'
+import { useVoice } from './composables/useVoice'
 
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'

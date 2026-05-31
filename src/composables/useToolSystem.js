@@ -506,6 +506,37 @@ function registerBrowserTools() {
   })
 }
 
+
+  // -- Sub-Agent (delegate_task) --
+
+  registerTool({
+    name: 'delegate_task',
+    description:
+      'Delegate a specific sub-task to a sub-agent. The sub-agent has its own conversation context and limited tool set. Use for: research tasks, code analysis, document reading, multi-step searches. Returns a summary when done.',
+    permission: 'safe',
+    parameters: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Detailed description of the sub-task' },
+        tools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tool whitelist for sub-agent (empty = read-only tools: navigate_to, web_search, read_current_page, get_page_dom, capture_screenshot)'
+        },
+        maxRounds: { type: 'number', description: 'Max execution rounds (default 5)' }
+      },
+      required: ['task']
+    },
+    execute: async (args) => {
+      if (!args.task) throw new Error('Missing task description')
+      const allowedTools = args.tools && args.tools.length > 0
+        ? args.tools
+        : ['navigate_to', 'web_search', 'read_current_page', 'get_page_dom', 'capture_screenshot', 'get_page_html']
+      const maxRounds = Math.min(args.maxRounds || 5, 8)
+      return await window.__dawnSubAgent(args.task, allowedTools, maxRounds)
+    }
+  })
+
 let _mcpToolsLoaded = false
 
 async function syncMcpTools() {

@@ -1,4 +1,4 @@
-﻿import { ref, computed, toRaw } from 'vue'
+import { ref, computed, toRaw } from 'vue'
 import { useAiConfig } from './useAiConfig'
 import { useToolSystem } from './useToolSystem'
 import { useAgentLoop } from './useAgentLoop'
@@ -128,6 +128,16 @@ function saveConversations() {
 }
 
 function createConversation() {
+  // Flush memory from the previous active conversation before creating new one
+  const prevConv = conversations.value.find(c => c.id === activeConvId.value)
+  if (prevConv && prevConv.messages && prevConv.messages.length >= 2) {
+    const { flushConversationMemory } = useAgentMemory()
+    const { config } = useAiConfig()
+    flushConversationMemory(prevConv, config.value).catch(e => {
+      console.warn('[Dawn] Memory flush failed:', e.message)
+    })
+  }
+
   const id = Date.now().toString(36) + ++_geminiTcCounter
   const conv = { id, title: 'New Chat', messages: [], createdAt: Date.now() }
   conversations.value.unshift(conv)
@@ -136,6 +146,13 @@ function createConversation() {
 }
 
 function deleteConversation(id) {
+  // Flush memory before deleting
+  const conv = conversations.value.find(c => c.id === id)
+  if (conv && conv.messages && conv.messages.length >= 2) {
+    const { flushConversationMemory } = useAgentMemory()
+    const { config } = useAiConfig()
+    flushConversationMemory(conv, config.value).catch(() => {})
+  }
   conversations.value = conversations.value.filter(c => c.id !== id)
   if (activeConvId.value === id) {
     activeConvId.value = conversations.value.length > 0 ? conversations.value[0].id : null
@@ -178,10 +195,10 @@ async function sendMessage(content, pageContext = null, images = null, slashCmd 
     if (abortController) { abortController.abort(); abortController = null }
   }
 
-  const { config, getEffectiveModel, getEffectiveBaseUrl, getApiFormat } = useAiConfig()
+  const { config, getEffectiveModel, getEffectiveBaseUrl, getApiFormat, getFailoverChain } = useAiConfig()
   const { getToolsForProvider, executeTool, resolvePermission } = useToolSystem()
   const { createPlan, getPlanToolDefinition } = useAgentLoop()
-  const { updateContextStats, shouldCompact, compactHistory, detectToolLoop, getToolLoopConfig } = useContextManager()
+  const { updateContextStats, shouldCompact, compactHistory, summarizeAndCompact, isContextOverflowError, detectToolLoop, getToolLoopConfig } = useContextManager()
   const { addToTrail } = useAutonomousBrowser()
 
   if (!activeConvId.value) createConversation()
@@ -228,7 +245,15 @@ async function sendMessage(content, pageContext = null, images = null, slashCmd 
 
   const baseSystemPrompt = config.value.systemPrompt || '你是一个有用的助手。'
   const skillsPrompt = formatSkillsForPrompt(skills.value)
-  const systemPrompt = baseSystemPrompt + skillsPrompt
+
+  // Active Memory injection: search relevant memories and inject into system prompt
+  const { getMemoriesForPrompt: _getMem } = useAgentMemory()
+  let memoryContext = ''
+  try {
+    memoryContext = await _getMem(userContent, 20)
+  } catch (e) { console.warn('[Dawn] Active Memory injection failed:', e.message) }
+
+  const systemPrompt = baseSystemPrompt + skillsPrompt + memoryContext
 
   const agentSystemPrompt = isComplex ? `You are a browser agent. You have tools to read pages, navigate, click, fill forms, and more. When the user gives you a task:
 
@@ -258,7 +283,7 @@ IMPORTANT:
   }
 
   try {
-    await runAgentLoop(conv, format, baseUrl, apiKey, model, agentSystemPrompt, allTools, config.value, executeTool, resolvePermission, format, updateContextStats, shouldCompact, compactHistory, detectToolLoop, getToolLoopConfig)
+    await runAgentLoop(conv, format, baseUrl, apiKey, model, agentSystemPrompt, allTools, config.value, executeTool, resolvePermission, format, updateContextStats, shouldCompact, compactHistory, summarizeAndCompact, isContextOverflowError, detectToolLoop, getToolLoopConfig)
   } catch (e) {
     if (e.name !== 'AbortError') {
       streamError.value = e.message
@@ -278,7 +303,7 @@ IMPORTANT:
   }
 }
 
-async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, tools, cfg, executeTool, resolvePermission, providerFormat, updateCtx, shouldCompactFn, compactHistoryFn, detectLoop, getLoopCfg) {
+async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, tools, cfg, executeTool, resolvePermission, providerFormat, updateCtx, shouldCompactFn, compactHistoryFn, summarizeAndCompactFn, isOverflowErrorFn, detectLoop, getLoopCfg) {
   const loopCfg = getLoopCfg()
   const MAX_TOOL_ROUNDS = loopCfg.maxRounds
   const { createTask, addStep, updateTaskStatus } = useAgentMemory()
@@ -293,6 +318,8 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
   }
 
   try {
+  const failoverChain = getFailoverChain()
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     if (abortController?.signal.aborted) break
 
@@ -310,7 +337,11 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
     updateCtx(allMessages)
 
     if (shouldCompactFn(allMessages)) {
-      conv.messages = compactHistoryFn(allMessages)
+      // Flush memory before compaction
+      const { flushConversationMemory: _flushMem } = useAgentMemory()
+      try { await _flushMem(conv, cfg) } catch {}
+      // LLM-based summarization compaction
+      conv.messages = await summarizeAndCompactFn(allMessages, cfg)
     }
 
     const apiMessages = buildApiMessages(conv, systemPrompt, format)
@@ -332,12 +363,26 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
       }
     }
 
-    if (format === 'anthropic') {
-      toolCalls = await streamAnthropic(baseUrl, apiKey, model, apiMessages, cfg, assistantMsg, tools, abortController.signal)
-    } else if (format === 'google') {
-      toolCalls = await streamGoogle(baseUrl, apiKey, model, apiMessages, cfg, assistantMsg, tools, abortController.signal)
-    } else {
-      toolCalls = await streamOpenAI(baseUrl, apiKey, model, apiMessages, cfg, assistantMsg, tools, abortController.signal)
+    // Stream with failover auto-retry
+    try {
+      const streamResult = await streamWithFailover(failoverChain, conv, systemPrompt, cfg, assistantMsg, tools, abortController.signal)
+      toolCalls = streamResult.toolCalls
+    } catch (streamErr) {
+      if (isOverflowErrorFn(streamErr) && conv.messages.length > 6) {
+        console.warn('[Dawn] Context overflow, compacting and retrying...')
+        const { flushConversationMemory: _flush2 } = useAgentMemory()
+        try { await _flush2(conv, cfg) } catch {}
+        conv.messages = await summarizeAndCompactFn(conv.messages, cfg)
+        const failIdx = conv.messages.indexOf(assistantMsg)
+        if (failIdx >= 0) conv.messages.splice(failIdx, 1)
+        const retryMsgs = buildApiMessages(conv, systemPrompt, format)
+        const retryAsst = { role: 'assistant', content: '', toolCalls: [] }
+        conv.messages.push(retryAsst)
+        const retryResult = await streamWithFailover(failoverChain, conv, systemPrompt, cfg, retryAsst, tools, abortController.signal)
+        toolCalls = retryResult.toolCalls
+      } else {
+        throw streamErr
+      }
     }
 
     if (toolCalls.length === 0) {
@@ -445,6 +490,34 @@ async function runAgentLoop(conv, format, baseUrl, apiKey, model, systemPrompt, 
     throw e
   }
 }
+
+
+async function streamWithFailover(chain, conv, systemPrompt, cfg, assistantMsg, tools, signal) {
+  let lastError = null
+  for (const candidate of chain) {
+    try {
+      assistantMsg.content = ''
+      assistantMsg.reasoning_content = ''
+      // Rebuild messages for this candidate's format
+      const candidateApiMessages = buildApiMessages(conv, systemPrompt, candidate.format)
+      const streamFn = candidate.format === 'anthropic' ? streamAnthropic
+        : candidate.format === 'google' ? streamGoogle
+        : streamOpenAI
+      const result = await streamFn(candidate.baseUrl, candidate.apiKey, candidate.model, candidateApiMessages, cfg, assistantMsg, tools, signal)
+      return { toolCalls: result, usedModel: candidate.model, usedProvider: candidate.provider }
+    } catch (e) {
+      if (e.name === 'AbortError') throw e
+      if (e.message && e.message.toLowerCase().includes('context') && e.message.toLowerCase().includes('exceed')) throw e
+      lastError = e
+      console.warn('[Dawn] Model ' + candidate.provider + '/' + candidate.model + ' failed: ' + e.message)
+      if (chain.indexOf(candidate) < chain.length - 1) {
+        console.log('[Dawn] Trying next model in failover chain...')
+      }
+    }
+  }
+  throw lastError || new Error('All models in failover chain failed')
+}
+
 
 function buildApiMessages(conv, systemPrompt, format) {
   const msgs = [{ role: 'system', content: systemPrompt }]

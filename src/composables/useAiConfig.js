@@ -104,6 +104,7 @@ function loadConfig() {
     searchEngine: 'baidu',
     downloadPath: '',
     clearOnExit: false,
+    modelFallbacks: [],
     contextMenuActions: [
       { id: 'translate', name: 'AI 翻译', prompt: '请将以下文字翻译为中文：\n\n{{text}}', enabled: true },
       { id: 'explain', name: 'AI 解释', prompt: '请解释以下内容的含义：\n\n{{text}}', enabled: true },
@@ -149,6 +150,36 @@ function getApiFormat() {
   return getProvider().format
 }
 
+
+function getFailoverChain() {
+  const c = config.value
+  if (!c) return []
+  const provider = getProvider()
+  const primary = {
+    provider: c.provider,
+    model: getEffectiveModel(),
+    baseUrl: getEffectiveBaseUrl(),
+    apiKey: c.apiKey,
+    format: provider.format
+  }
+  const chain = [primary]
+  for (const fb of (c.modelFallbacks || [])) {
+    const parts = fb.split('/')
+    const fbProviderId = parts.length > 1 ? parts[0] : c.provider
+    const fbModel = parts.length > 1 ? parts[1] : parts[0]
+    const fbProvider = PROVIDERS.find(p => p.id === fbProviderId)
+    if (fbProvider && fbModel) {
+      chain.push({
+        provider: fbProviderId,
+        model: fbModel,
+        baseUrl: c.baseUrl || fbProvider.baseUrl,
+        apiKey: c.apiKey,
+        format: fbProvider.format
+      })
+    }
+  }
+  return chain
+}
 export function useAiConfig() {
   loadConfig()
 
@@ -165,6 +196,7 @@ export function useAiConfig() {
     getEffectiveBaseUrl,
     getApiFormat,
     loadConfig,
-    saveConfig
+    saveConfig,
+    getFailoverChain
   }
 }

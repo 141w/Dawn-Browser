@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useAiConfig } from './composables/useAiConfig'
 import { useToolSystem } from './composables/useToolSystem'
@@ -6,6 +6,7 @@ import { useSkillSystem } from './composables/useSkillSystem'
 import { t } from './composables/useI18n'
 import { useHistory } from './composables/useHistory'
 import { useAgentMemory } from './composables/useAgentMemory'
+import { useVoice } from './composables/useVoice'
 import BookmarkManager from './BookmarkManager.vue'
 
 defineProps({ embedded: { type: Boolean, default: false } })
@@ -13,7 +14,8 @@ defineProps({ embedded: { type: Boolean, default: false } })
 const { config, providers, getProvider, getApiFormat, getEffectiveBaseUrl, getEffectiveModel } = useAiConfig()
 const { getRegisteredTools, getPermission, setPermission, resolvePermission, syncMcpTools } = useToolSystem()
 const { allSkillsWithStatus, toggleSkill, addCustomSkill, deleteCustomSkill, updateCustomSkill, isCustomSkill, loadSkills, refreshSkills } = useSkillSystem()
-const { memories, loadMemories, addMemory, deleteMemory, clearMemories } = useAgentMemory()
+const { speak, stopSpeaking, isSpeaking, getVoices, selectedVoice, speechRate, autoRead: voiceAutoRead, saveVoiceConfig } = useVoice()
+const { memories, dailyNotes, loadMemories, addMemory, deleteMemory, clearMemories, runPromotionCheck, loadDailyNotes, readDailyNote } = useAgentMemory()
 const activeTab = ref('general')
 
 function handleAddMemory() {
@@ -93,6 +95,23 @@ function handleOpenFolder(name) {
 // Custom model management
 const newCustomModel = ref('')
 const newMemoryContent = ref('')
+const newFallbackModel = ref('')
+
+function addFallbackModel() {
+  const m = newFallbackModel.value.trim()
+  if (!m) return
+  if (!config.value.modelFallbacks) config.value.modelFallbacks = []
+  if (!config.value.modelFallbacks.includes(m)) {
+    config.value.modelFallbacks.push(m)
+  }
+  newFallbackModel.value = ''
+}
+
+function removeFallbackModel(idx) {
+  if (config.value.modelFallbacks) {
+    config.value.modelFallbacks.splice(idx, 1)
+  }
+}
 
 const customModels = computed(() => {
   const saved = config.value.customModels
@@ -252,6 +271,7 @@ function applyAppearance() {
 }
 watch(() => [config.value?.theme, config.value?.fontSize], applyAppearance)
 onMounted(applyAppearance)
+loadDailyNotes()
 </script>
 
 <template>
@@ -384,6 +404,43 @@ onMounted(applyAppearance)
           <span>{{ t('bs.format') }}: {{ getApiFormat() }}</span>
           <span>{{ t('bs.endpoint') }}: {{ getEffectiveBaseUrl() }}</span>
           <span>{{ t('settings.modelLabel') }}: {{ getEffectiveModel() }}</span>
+        </div>
+
+        <!-- Fallback Models -->
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
+          <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('failover.title') || 'Fallback Models' }}</div>
+          <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">{{ t('failover.desc') || 'Auto-switch when primary model fails' }}</div>
+          <div style="display:flex;gap:4px;margin-bottom:8px;">
+            <input class="bs-input" v-model="newFallbackModel" placeholder="e.g. deepseek-chat or ollama/llama3" style="flex:1;" @keydown.enter="addFallbackModel" />
+            <button class="bs-mcp-btn" @click="addFallbackModel" style="flex-shrink:0;">{{ t('failover.add') || 'Add' }}</button>
+          </div>
+          <div v-for="(fb, idx) in (config.modelFallbacks || [])" :key="idx" style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--color-bg-hover);border-radius:4px;margin-bottom:4px;">
+            <span style="flex:1;font-size:12px;font-family:monospace;color:var(--color-text);">{{ fb }}</span>
+            <button style="background:none;border:none;color:var(--color-text-muted);cursor:pointer;font-size:14px;" @click="removeFallbackModel(idx)">&times;</button>
+          </div>
+        </div>
+
+        <!-- Voice Settings -->
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
+          <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('voice.voice') || 'Voice' }}</div>
+          <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">Text-to-Speech and voice input settings</div>
+          <div class="bs-field">
+            <label class="bs-label">{{ t('voice.speed') || 'Speed' }}: {{ speechRate }}x</label>
+            <input class="bs-input" type="range" min="0.5" max="2" step="0.1" v-model.number="speechRate" @change="saveVoiceConfig()" style="padding:0;border:none;" />
+          </div>
+          <div class="bs-field">
+            <label class="bs-checkbox-label">
+              <input type="checkbox" v-model="voiceAutoRead" @change="saveVoiceConfig()" />
+              {{ t('voice.autoRead') || 'Auto-read replies' }}
+            </label>
+          </div>
+          <div class="bs-field">
+            <label class="bs-label">{{ t('voice.voice') || 'Voice' }}</label>
+            <select class="bs-select" v-model="selectedVoice" @change="saveVoiceConfig()">
+              <option value="">Default</option>
+              <option v-for="v in getVoices()" :key="v.name" :value="v.name">{{ v.name }} ({{ v.lang }})</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -524,19 +581,64 @@ onMounted(applyAppearance)
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
           <div class="bs-section-title" style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:4px;">{{ t('memory.title') || 'AI Memory' }}</div>
           <div class="bs-section-desc" style="font-size:12px;color:var(--color-text-muted);margin-bottom:12px;">{{ t('memory.desc') || 'Cross-conversation memories automatically extracted and injected into new chats' }}</div>
+
+          <!-- Add memory input -->
           <div style="display:flex;gap:4px;margin-bottom:8px;">
             <input class="bs-input" v-model="newMemoryContent" :placeholder="t('memory.addPlaceholder') || 'Add a memory...'" style="flex:1;" @keydown.enter="handleAddMemory()" />
             <button class="bs-mcp-btn" @click="handleAddMemory()">{{ t('memory.add') || 'Add' }}</button>
           </div>
-          <div style="max-height:200px;overflow-y:auto;">
-            <div v-for="mem in memories" :key="mem.id" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border-radius:4px;margin-bottom:4px;">
-              <span style="flex:1;font-size:12px;color:var(--color-text);">{{ mem.content }}</span>
-              <span v-if="mem.tags" style="font-size:10px;color:var(--color-text-muted);padding:1px 4px;background:var(--color-bg-active);border-radius:3px;">{{ mem.tags }}</span>
-              <button style="background:none;border:none;color:var(--color-text-muted);cursor:pointer;font-size:14px;" @click="deleteMemory(mem.id)">&times;</button>
+
+          <!-- Memory list with type badges and recall stats -->
+          <div style="max-height:240px;overflow-y:auto;">
+            <div v-for="mem in memories" :key="mem.id" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border-radius:4px;margin-bottom:4px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:12px;color:var(--color-text);word-break:break-word;">{{ mem.content }}</div>
+                <div style="display:flex;gap:6px;margin-top:3px;align-items:center;">
+                  <span :style="{
+                    fontSize:'10px',padding:'1px 5px',borderRadius:'3px',fontWeight:600,
+                    background: mem.type === 'long-term' ? 'rgba(234,179,8,0.15)' : 'var(--color-bg-active)',
+                    color: mem.type === 'long-term' ? '#ca8a04' : 'var(--color-text-muted)'
+                  }">{{ mem.type === 'long-term' ? (t('memory.type.long') || 'Long-term') : (t('memory.type.short') || 'Short-term') }}</span>
+                  <span v-if="mem.tags" style="font-size:10px;color:var(--color-text-muted);padding:1px 4px;background:var(--color-bg-active);border-radius:3px;">{{ mem.tags }}</span>
+                  <span v-if="mem.recall_count > 0" style="font-size:10px;color:var(--color-text-muted);">{{ (t('memory.recallCount') || 'Recalled {n} times').replace('{n}', mem.recall_count) }}</span>
+                </div>
+              </div>
+              <button style="background:none;border:none;color:var(--color-text-muted);cursor:pointer;font-size:14px;flex-shrink:0;" @click="deleteMemory(mem.id)">&times;</button>
             </div>
             <div v-if="memories.length === 0" style="font-size:12px;color:var(--color-text-muted);padding:12px;text-align:center;">{{ t('memory.empty') || 'No memories yet. They are extracted automatically from conversations.' }}</div>
           </div>
-          <button v-if="memories.length > 0" class="bs-mcp-btn bs-mcp-btn-danger" style="margin-top:8px;" @click="handleClearMemories()">{{ t('memory.clearAll') || 'Clear All' }}</button>
+
+          <!-- Action buttons -->
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <button class="bs-mcp-btn" @click="handlePromote()" :disabled="promoting">{{ promoting ? '...' : (t('memory.promote') || 'Promote') }}</button>
+            <button v-if="memories.length > 0" class="bs-mcp-btn bs-mcp-btn-danger" @click="handleClearMemories()">{{ t('memory.clearAll') || 'Clear All' }}</button>
+          </div>
+
+          <!-- Promotion info -->
+          <div style="font-size:11px;color:var(--color-text-muted);margin-top:8px;">{{ t('memory.promotionDesc') || 'Short-term memories auto-promote to long-term after repeated recalls' }}</div>
+
+          <!-- Daily Notes -->
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--color-border);">
+            <div class="bs-section-title" style="font-size:13px;font-weight:600;color:var(--color-text);margin-bottom:6px;">{{ t('memory.dailyNotes') || 'Daily Notes' }}</div>
+            <div v-if="dailyNotes.length === 0" style="font-size:12px;color:var(--color-text-muted);padding:8px 0;">{{ t('memory.noNotes') || 'No notes yet' }}</div>
+            <div v-else style="display:flex;flex-wrap:wrap;gap:4px;">
+              <button v-for="note in dailyNotes" :key="note.date"
+                @click="handleViewDailyNote(note.date)"
+                :style="{
+                  fontSize:'11px',padding:'3px 8px',borderRadius:'4px',cursor:'pointer',
+                  border: selectedDailyNote === note.date ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                  background: selectedDailyNote === note.date ? 'var(--color-accent-bg)' : 'var(--color-bg-elevated)',
+                  color: selectedDailyNote === note.date ? 'var(--color-accent)' : 'var(--color-text-secondary)'
+                }">{{ note.date }}</button>
+            </div>
+            <div v-if="selectedDailyNote" style="margin-top:8px;padding:8px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:6px;max-height:200px;overflow-y:auto;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="font-size:12px;font-weight:600;color:var(--color-text);">{{ selectedDailyNote }}</span>
+                <button style="background:none;border:none;color:var(--color-text-muted);cursor:pointer;font-size:12px;" @click="handleCloseDailyNote()">{{ t('history.cancel') || 'Close' }}</button>
+              </div>
+              <pre style="font-size:11px;color:var(--color-text-secondary);white-space:pre-wrap;word-break:break-word;margin:0;font-family:inherit;">{{ dailyNoteContent }}</pre>
+            </div>
+          </div>
         </div>
       </div>
 
